@@ -237,7 +237,25 @@
       "volume": {
         "title": "Lautstärke",
         "description": "Lautstärke der Audio-Feedback-Töne anpassen"
-      }
+      },
+      "startSound": {
+        "label": "Start Sound",
+        "description": "Sound played when recording starts"
+      },
+      "stopSound": {
+        "label": "Stop Sound",
+        "description": "Sound played when recording stops"
+      },
+      "theme": {
+        "marimba": "Marimba",
+        "pop": "Pop",
+        "custom": "Custom"
+      },
+      "chooseFile": "Choose file...",
+      "preview": "Preview",
+      "reset": "Reset to default",
+      "dropHint": "Drop an audio file to use it",
+      "unsupportedFormat": "Unsupported format. Use WAV, MP3, FLAC, or OGG."
     },
     "advanced": {
       "groups": {
@@ -462,10 +480,6 @@
       "updateChecks": {
         "label": "Nach Updates suchen",
         "description": "Automatisch nach neuen Versionen von Handy suchen"
-      },
-      "soundTheme": {
-        "label": "Sound-Thema",
-        "description": "Sound-Thema für Aufnahme-Start und -Stop-Feedback auswählen"
       },
       "wordCorrectionThreshold": {
         "title": "Wortkorrektur-Schwelle",

@@ -333,7 +333,17 @@ pub struct AppSettings {
     #[serde(default = "default_audio_feedback_volume")]
     pub audio_feedback_volume: f32,
     #[serde(default = "default_sound_theme")]
-    pub sound_theme: SoundTheme,
+    pub start_sound: SoundTheme,
+    #[serde(default = "default_sound_theme")]
+    pub stop_sound: SoundTheme,
+    /// Filename (with extension) of the user's imported start sound, stored in the
+    /// app data dir. Used only when `start_sound` is `SoundTheme::Custom`.
+    #[serde(default)]
+    pub custom_start_sound: Option<String>,
+    /// Filename (with extension) of the user's imported stop sound, stored in the
+    /// app data dir. Used only when `stop_sound` is `SoundTheme::Custom`.
+    #[serde(default)]
+    pub custom_stop_sound: Option<String>,
     #[serde(default = "default_start_hidden")]
     pub start_hidden: bool,
     #[serde(default = "default_autostart_enabled")]
@@ -804,7 +814,10 @@ pub fn get_default_settings() -> AppSettings {
         push_to_talk: true,
         audio_feedback: false,
         audio_feedback_volume: default_audio_feedback_volume(),
-        sound_theme: default_sound_theme(),
+        start_sound: default_sound_theme(),
+        stop_sound: default_sound_theme(),
+        custom_start_sound: None,
+        custom_stop_sound: None,
         start_hidden: default_start_hidden(),
         autostart_enabled: default_autostart_enabled(),
         update_checks_enabled: default_update_checks_enabled(),
@@ -1026,6 +1039,33 @@ fn apply_settings_migrations(
         updated = true;
     }
 
+    // One-time sound migration (only while the new per-slot key is absent): the
+    // single `sound_theme` field was split into independent `start_sound` and
+    // `stop_sound` slots. Copy the legacy value into both. A legacy `custom` theme
+    // implied hand-placed `custom_start.wav` / `custom_stop.wav`, so adopt those as
+    // the slot filenames — the resolver falls back to the built-in sound if a file
+    // turns out to be missing.
+    if settings_value.get("start_sound").is_none() {
+        if let Some(legacy) = settings_value.get("sound_theme").and_then(|v| v.as_str()) {
+            let theme = match legacy {
+                "pop" => SoundTheme::Pop,
+                "custom" => SoundTheme::Custom,
+                _ => SoundTheme::Marimba,
+            };
+            settings.start_sound = theme;
+            settings.stop_sound = theme;
+            if theme == SoundTheme::Custom {
+                if settings.custom_start_sound.is_none() {
+                    settings.custom_start_sound = Some("custom_start.wav".to_string());
+                }
+                if settings.custom_stop_sound.is_none() {
+                    settings.custom_stop_sound = Some("custom_stop.wav".to_string());
+                }
+            }
+            updated = true;
+        }
+    }
+
     updated
 }
 
@@ -1122,6 +1162,69 @@ mod tests {
         assert!(apply_settings_migrations(&mut settings, &raw));
         assert_eq!(settings.overlay_style, OverlayStyle::Live);
         assert_eq!(settings.overlay_position, OverlayPosition::Top);
+    }
+
+    #[test]
+    fn sound_migration_copies_legacy_theme_into_both_slots() {
+        let mut settings = get_default_settings();
+
+        // Legacy store: a single `sound_theme`, no per-slot keys yet.
+        let raw = serde_json::json!({
+            "selected_model": "",
+            "sound_theme": "pop"
+        });
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert_eq!(settings.start_sound, SoundTheme::Pop);
+        assert_eq!(settings.stop_sound, SoundTheme::Pop);
+        assert_eq!(settings.custom_start_sound, None);
+        assert_eq!(settings.custom_stop_sound, None);
+    }
+
+    #[test]
+    fn sound_migration_adopts_legacy_custom_files() {
+        let mut settings = get_default_settings();
+
+        // Legacy store: theme was "custom", implying hand-placed custom_*.wav files.
+        let raw = serde_json::json!({
+            "selected_model": "",
+            "sound_theme": "custom"
+        });
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert_eq!(settings.start_sound, SoundTheme::Custom);
+        assert_eq!(settings.stop_sound, SoundTheme::Custom);
+        assert_eq!(
+            settings.custom_start_sound.as_deref(),
+            Some("custom_start.wav")
+        );
+        assert_eq!(
+            settings.custom_stop_sound.as_deref(),
+            Some("custom_stop.wav")
+        );
+    }
+
+    #[test]
+    fn sound_migration_skips_when_slots_already_present() {
+        let mut settings = get_default_settings();
+        settings.start_sound = SoundTheme::Marimba;
+        settings.stop_sound = SoundTheme::Pop;
+
+        // New store already has per-slot keys; a stray legacy `sound_theme` must be
+        // ignored so the migration does not clobber the user's independent slots.
+        let raw = serde_json::json!({
+            "selected_model": "",
+            "start_sound": "marimba",
+            "stop_sound": "pop",
+            "sound_theme": "custom"
+        });
+
+        // Other migrations may or may not fire, but the sound slots must be untouched.
+        apply_settings_migrations(&mut settings, &raw);
+        assert_eq!(settings.start_sound, SoundTheme::Marimba);
+        assert_eq!(settings.stop_sound, SoundTheme::Pop);
+        assert_eq!(settings.custom_start_sound, None);
+        assert_eq!(settings.custom_stop_sound, None);
     }
 
     #[test]

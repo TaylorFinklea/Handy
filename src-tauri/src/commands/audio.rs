@@ -1,10 +1,12 @@
 use crate::audio_feedback;
 use crate::audio_toolkit::audio::{list_input_devices, list_output_devices};
 use crate::managers::audio::{AudioRecordingManager, MicrophoneMode};
-use crate::settings::{get_settings, write_settings};
+use crate::settings::{get_settings, write_settings, SoundTheme};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
@@ -14,24 +16,145 @@ use winreg::{
     RegKey, HKEY,
 };
 
-#[derive(Serialize, Type)]
-pub struct CustomSounds {
-    start: bool,
-    stop: bool,
+/// Audio formats accepted for custom feedback sounds. `rodio` can decode all of
+/// these; files are copied as-is and stored with their original extension.
+const ALLOWED_SOUND_EXTENSIONS: [&str; 4] = ["wav", "mp3", "flac", "ogg"];
+
+/// Upper bound on an imported sound file. Start/stop cues are short; this rejects
+/// accidental imports of large media while leaving ample headroom.
+const MAX_CUSTOM_SOUND_BYTES: u64 = 5 * 1024 * 1024;
+
+/// Normalize the `sound_type` argument shared by the custom-sound commands.
+fn parse_sound_slot(sound_type: &str) -> Result<&'static str, String> {
+    match sound_type {
+        "start" => Ok("start"),
+        "stop" => Ok("stop"),
+        other => Err(format!("Unknown sound type: {}", other)),
+    }
 }
 
-fn custom_sound_exists(app: &AppHandle, sound_type: &str) -> bool {
-    crate::portable::resolve_app_data(app, &format!("custom_{}.wav", sound_type))
-        .is_ok_and(|path| path.exists())
+/// Remove previously-imported custom files for a slot. `keep_ext` (the extension
+/// just written) is skipped so a fresh import isn't deleted while clearing stale
+/// files left by an earlier import in a different container.
+fn remove_custom_sound_files(app: &AppHandle, slot: &str, keep_ext: Option<&str>) {
+    for ext in ALLOWED_SOUND_EXTENSIONS {
+        if keep_ext == Some(ext) {
+            continue;
+        }
+        if let Ok(path) =
+            crate::portable::resolve_app_data(app, &format!("custom_{}.{}", slot, ext))
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
+/// Import a user-selected audio file as the custom sound for a slot ("start" or
+/// "stop"). Validates the format, copies it into the app data dir as
+/// `custom_{slot}.{ext}`, and points the slot at it. Returns the stored filename.
 #[tauri::command]
 #[specta::specta]
-pub fn check_custom_sounds(app: AppHandle) -> CustomSounds {
-    CustomSounds {
-        start: custom_sound_exists(&app, "start"),
-        stop: custom_sound_exists(&app, "stop"),
+pub fn set_custom_sound(
+    app: AppHandle,
+    sound_type: String,
+    source_path: String,
+) -> Result<String, String> {
+    let slot = parse_sound_slot(&sound_type)?;
+    let source = Path::new(&source_path);
+
+    let ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .ok_or_else(|| "The selected file has no extension.".to_string())?;
+    if !ALLOWED_SOUND_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!(
+            "Unsupported format \".{}\". Use WAV, MP3, FLAC, or OGG.",
+            ext
+        ));
     }
+
+    let metadata =
+        fs::metadata(source).map_err(|e| format!("Couldn't read the selected file: {}", e))?;
+    if !metadata.is_file() {
+        return Err("The selected path is not a file.".to_string());
+    }
+    if metadata.len() > MAX_CUSTOM_SOUND_BYTES {
+        return Err("That file is too large (max 5 MB).".to_string());
+    }
+
+    // Confirm the file actually decodes before we adopt it, so a corrupt or
+    // mislabeled file fails here instead of silently during playback.
+    {
+        let file = fs::File::open(source)
+            .map_err(|e| format!("Couldn't open the selected file: {}", e))?;
+        rodio::Decoder::new(std::io::BufReader::new(file))
+            .map_err(|_| "That file isn't a playable audio file.".to_string())?;
+    }
+
+    let dest_name = format!("custom_{}.{}", slot, ext);
+    let dest = crate::portable::resolve_app_data(&app, &dest_name).map_err(|e| e.to_string())?;
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Couldn't prepare the sounds folder: {}", e))?;
+    }
+
+    // Copy to a temporary file, then atomically rename it into place. A failed or
+    // partial copy therefore never destroys the slot's existing sound and never
+    // leaves a truncated file at the live path (which the resolver, checking only
+    // existence, would otherwise play). This also handles source == dest, since the
+    // copy reads the source before anything at the destination is replaced.
+    let tmp = dest.with_file_name(format!(".{}.tmp", dest_name));
+    fs::copy(source, &tmp).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("Couldn't save the sound: {}", e)
+    })?;
+    fs::rename(&tmp, &dest).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("Couldn't save the sound: {}", e)
+    })?;
+    // The new file is safely in place; drop any stale file for this slot that used
+    // a different format.
+    remove_custom_sound_files(&app, slot, Some(ext.as_str()));
+
+    let mut settings = get_settings(&app);
+    match slot {
+        "start" => {
+            settings.start_sound = SoundTheme::Custom;
+            settings.custom_start_sound = Some(dest_name.clone());
+        }
+        _ => {
+            settings.stop_sound = SoundTheme::Custom;
+            settings.custom_stop_sound = Some(dest_name.clone());
+        }
+    }
+    write_settings(&app, settings);
+
+    Ok(dest_name)
+}
+
+/// Clear a slot's custom sound: delete the stored file and reset the slot back to
+/// the default built-in theme.
+#[tauri::command]
+#[specta::specta]
+pub fn clear_custom_sound(app: AppHandle, sound_type: String) -> Result<(), String> {
+    let slot = parse_sound_slot(&sound_type)?;
+    remove_custom_sound_files(&app, slot, None);
+
+    let mut settings = get_settings(&app);
+    match slot {
+        "start" => {
+            settings.start_sound = SoundTheme::Marimba;
+            settings.custom_start_sound = None;
+        }
+        _ => {
+            settings.stop_sound = SoundTheme::Marimba;
+            settings.custom_stop_sound = None;
+        }
+    }
+    write_settings(&app, settings);
+
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]

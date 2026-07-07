@@ -237,7 +237,25 @@
       "volume": {
         "title": "音量",
         "description": "调整音频反馈的音量"
-      }
+      },
+      "startSound": {
+        "label": "Start Sound",
+        "description": "Sound played when recording starts"
+      },
+      "stopSound": {
+        "label": "Stop Sound",
+        "description": "Sound played when recording stops"
+      },
+      "theme": {
+        "marimba": "Marimba",
+        "pop": "Pop",
+        "custom": "Custom"
+      },
+      "chooseFile": "Choose file...",
+      "preview": "Preview",
+      "reset": "Reset to default",
+      "dropHint": "Drop an audio file to use it",
+      "unsupportedFormat": "Unsupported format. Use WAV, MP3, FLAC, or OGG."
     },
     "advanced": {
       "groups": {
@@ -462,10 +480,6 @@
       "updateChecks": {
         "label": "检查更新",
         "description": "自动检查 Handy 的新版本"
-      },
-      "soundTheme": {
-        "label": "声音主题",
-        "description": "选择录制开始和停止反馈的声音主题"
       },
       "wordCorrectionThreshold": {
         "title": "词汇修正阈值",

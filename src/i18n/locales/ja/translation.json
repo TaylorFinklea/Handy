@@ -237,7 +237,25 @@
       "volume": {
         "title": "音量",
         "description": "オーディオフィードバックの音量を調整"
-      }
+      },
+      "startSound": {
+        "label": "Start Sound",
+        "description": "Sound played when recording starts"
+      },
+      "stopSound": {
+        "label": "Stop Sound",
+        "description": "Sound played when recording stops"
+      },
+      "theme": {
+        "marimba": "Marimba",
+        "pop": "Pop",
+        "custom": "Custom"
+      },
+      "chooseFile": "Choose file...",
+      "preview": "Preview",
+      "reset": "Reset to default",
+      "dropHint": "Drop an audio file to use it",
+      "unsupportedFormat": "Unsupported format. Use WAV, MP3, FLAC, or OGG."
     },
     "advanced": {
       "groups": {
@@ -462,10 +480,6 @@
       "updateChecks": {
         "label": "アップデートを確認",
         "description": "Handy の新しいバージョンを自動的にチェック"
-      },
-      "soundTheme": {
-        "label": "サウンドテーマ",
-        "description": "録音開始・停止フィードバックのサウンドテーマを選択"
       },
       "wordCorrectionThreshold": {
         "title": "単語修正しきい値",

@@ -496,11 +496,8 @@ pub fn change_audio_feedback_volume_setting(app: AppHandle, volume: f32) -> Resu
     Ok(())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub fn change_sound_theme_setting(app: AppHandle, theme: String) -> Result<(), String> {
-    let mut settings = settings::get_settings(&app);
-    let parsed = match theme.as_str() {
+fn parse_sound_theme(theme: &str) -> SoundTheme {
+    match theme {
         "marimba" => SoundTheme::Marimba,
         "pop" => SoundTheme::Pop,
         "custom" => SoundTheme::Custom,
@@ -508,8 +505,23 @@ pub fn change_sound_theme_setting(app: AppHandle, theme: String) -> Result<(), S
             warn!("Invalid sound theme '{}', defaulting to marimba", other);
             SoundTheme::Marimba
         }
-    };
-    settings.sound_theme = parsed;
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_start_sound_setting(app: AppHandle, theme: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.start_sound = parse_sound_theme(&theme);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_stop_sound_setting(app: AppHandle, theme: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.stop_sound = parse_sound_theme(&theme);
     settings::write_settings(&app, settings);
     Ok(())
 }
