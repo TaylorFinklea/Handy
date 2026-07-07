@@ -578,6 +578,14 @@
         "label": "새 소식 표시",
         "description": "Handy 업데이트 후 릴리스 노트를 표시합니다"
       }
+    },
+    "appearance": {
+      "title": "Appearance"
+    },
+    "theme": {
+      "label": "Theme",
+      "description": "Choose the color theme for the app",
+      "system": "System"
     }
   },
   "footer": {

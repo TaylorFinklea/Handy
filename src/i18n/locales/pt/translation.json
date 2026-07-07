@@ -578,6 +578,14 @@
         "label": "Mostrar novidades",
         "description": "Mostrar notas de versão após atualizações do Handy"
       }
+    },
+    "appearance": {
+      "title": "Appearance"
+    },
+    "theme": {
+      "label": "Theme",
+      "description": "Choose the color theme for the app",
+      "system": "System"
     }
   },
   "footer": {

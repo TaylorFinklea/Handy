@@ -578,6 +578,14 @@
         "label": "Показувати новини",
         "description": "Показувати примітки до випуску після оновлень Handy"
       }
+    },
+    "appearance": {
+      "title": "Appearance"
+    },
+    "theme": {
+      "label": "Theme",
+      "description": "Choose the color theme for the app",
+      "system": "System"
     }
   },
   "footer": {

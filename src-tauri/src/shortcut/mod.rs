@@ -526,6 +526,17 @@ pub fn change_stop_sound_setting(app: AppHandle, theme: String) -> Result<(), St
     Ok(())
 }
 
+/// Persist the selected UI theme id. The frontend owns the theme registry and
+/// resolves unknown/legacy ids, so this just stores the string as-is.
+#[tauri::command]
+#[specta::specta]
+pub fn change_theme_setting(app: AppHandle, theme: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.theme = theme;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_translate_to_english_setting(app: AppHandle, enabled: bool) -> Result<(), String> {

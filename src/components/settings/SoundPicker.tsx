@@ -187,7 +187,9 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
             <div
               data-sound-slot={slot}
               className={`flex items-center gap-2 rounded-md transition-colors ${
-                dragSlot === slot ? "ring-2 ring-primary/60 bg-primary/5" : ""
+                dragSlot === slot
+                  ? "ring-2 ring-logo-primary/60 bg-logo-primary/5"
+                  : ""
               }`}
               title={
                 isCustom && fileName ? fileName : t("settings.sound.dropHint")

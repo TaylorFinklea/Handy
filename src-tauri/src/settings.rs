@@ -344,6 +344,11 @@ pub struct AppSettings {
     /// app data dir. Used only when `stop_sound` is `SoundTheme::Custom`.
     #[serde(default)]
     pub custom_stop_sound: Option<String>,
+    /// Selected UI theme id (e.g. "tokyo-night", "handy-light", "system"). The
+    /// concrete theme registry lives in the frontend; the backend only persists
+    /// the id, so adding themes needs no backend change.
+    #[serde(default = "default_theme")]
+    pub theme: String,
     #[serde(default = "default_start_hidden")]
     pub start_hidden: bool,
     #[serde(default = "default_autostart_enabled")]
@@ -545,6 +550,10 @@ fn default_audio_feedback_volume() -> f32 {
 
 fn default_sound_theme() -> SoundTheme {
     SoundTheme::Marimba
+}
+
+fn default_theme() -> String {
+    "tokyo-night".to_string()
 }
 
 fn default_post_process_enabled() -> bool {
@@ -818,6 +827,7 @@ pub fn get_default_settings() -> AppSettings {
         stop_sound: default_sound_theme(),
         custom_start_sound: None,
         custom_stop_sound: None,
+        theme: default_theme(),
         start_hidden: default_start_hidden(),
         autostart_enabled: default_autostart_enabled(),
         update_checks_enabled: default_update_checks_enabled(),
@@ -1162,6 +1172,26 @@ mod tests {
         assert!(apply_settings_migrations(&mut settings, &raw));
         assert_eq!(settings.overlay_style, OverlayStyle::Live);
         assert_eq!(settings.overlay_position, OverlayPosition::Top);
+    }
+
+    #[test]
+    fn default_theme_is_tokyo_night() {
+        let settings = get_default_settings();
+        assert_eq!(settings.theme, "tokyo-night");
+    }
+
+    #[test]
+    fn settings_without_theme_key_default_to_tokyo_night() {
+        // An older store predating the theme field must still deserialize, with the
+        // serde default filling `theme`.
+        let raw = serde_json::json!({
+            "audio_feedback": false,
+            "push_to_talk": true,
+            "bindings": {}
+        });
+        let settings: AppSettings =
+            serde_json::from_value(raw).expect("settings without a theme key should load");
+        assert_eq!(settings.theme, "tokyo-night");
     }
 
     #[test]

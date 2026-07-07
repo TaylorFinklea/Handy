@@ -1,6 +1,40 @@
-/* Handy Colors */
+/* Handy theme definitions — the registry lives in src/lib/themes.ts.
 
-:root {
+   A theme is a set of --color-* values selected via <html data-theme="…">, which
+   src/hooks/useTheme.ts stamps from the persisted setting (and src/main.tsx stamps
+   synchronously on boot to avoid a flash). App.css registers these tokens as
+   Tailwind utilities via `@theme inline`, so every component recolors for free.
+
+   The bare :root repeats the default (Tokyo Night) so the app is still styled if
+   a theme is somehow never applied. Each theme block lists every token — there is
+   no cross-theme inheritance. */
+
+:root,
+:root[data-theme="tokyo-night"] {
+  color-scheme: dark;
+  --color-text: #c0caf5;
+  --color-background: #1a1b26;
+  --color-background-ui: #7aa2f7;
+  --color-logo-primary: #7aa2f7;
+  --color-logo-stroke: #bb9af7;
+  --color-text-stroke: #1a1b26;
+  --color-mid-gray: #565f89;
+  --color-log-surface: #16161e;
+}
+
+:root[data-theme="tokyo-night-day"] {
+  color-scheme: light;
+  --color-text: #3760bf;
+  --color-background: #e1e2e7;
+  --color-background-ui: #2e7de9;
+  --color-logo-primary: #2e7de9;
+  --color-logo-stroke: #9854f1;
+  --color-text-stroke: #e1e2e7;
+  --color-mid-gray: #848cb5;
+}
+
+:root[data-theme="handy-light"] {
+  color-scheme: light;
   --color-text: #0f0f0f;
   --color-background: #fbfbfb;
   --color-background-ui: #da5893;
@@ -10,11 +44,14 @@
   --color-mid-gray: #808080;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-text: #fbfbfb;
-    --color-background: #2c2b29;
-    --color-logo-primary: #f28cbb;
-    --color-logo-stroke: #fad1ed;
-  }
+:root[data-theme="handy-dark"] {
+  color-scheme: dark;
+  --color-text: #fbfbfb;
+  --color-background: #2c2b29;
+  --color-background-ui: #da5893;
+  --color-logo-primary: #f28cbb;
+  --color-logo-stroke: #fad1ed;
+  --color-text-stroke: #f6f6f6;
+  --color-mid-gray: #808080;
+  --color-log-surface: color-mix(in srgb, var(--color-background), black 15%);
 }
