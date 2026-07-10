@@ -9,6 +9,7 @@
   --color-background-ui: var(--color-background-ui);
   --color-logo-primary: var(--color-logo-primary);
   --color-logo-stroke: var(--color-logo-stroke);
+  --color-logo-highlight: var(--color-logo-highlight);
   --color-text-stroke: var(--color-text-stroke);
   --color-mid-gray: var(--color-mid-gray);
 }
@@ -96,4 +97,10 @@
   fill: var(--color-logo-stroke);
   stroke: var(--color-logo-stroke);
   stroke-width: 1;
+}
+
+/* Glossy sheen marks on the wordmark. Previously hardcoded pink, which stranded
+   the logo on non-pink themes. */
+.logo-highlight {
+  fill: var(--color-logo-highlight);
 }
