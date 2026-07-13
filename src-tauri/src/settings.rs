@@ -258,16 +258,6 @@ impl SoundTheme {
     }
 }
 
-/// UI appearance mode. `System` follows the OS `prefers-color-scheme`; `Light`
-/// and `Dark` force one of the two palettes Handy already ships.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
-#[serde(rename_all = "snake_case")]
-pub enum Theme {
-    System,
-    Light,
-    Dark,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TypingTool {
@@ -354,7 +344,27 @@ pub struct AppSettings {
     #[serde(default = "default_audio_feedback_volume")]
     pub audio_feedback_volume: f32,
     #[serde(default = "default_sound_theme")]
-    pub sound_theme: SoundTheme,
+    pub start_sound: SoundTheme,
+    #[serde(default = "default_sound_theme")]
+    pub stop_sound: SoundTheme,
+    /// Filename (with extension) of the user's imported start sound, stored in the
+    /// app data dir. Used only when `start_sound` is `SoundTheme::Custom`.
+    #[serde(default)]
+    pub custom_start_sound: Option<String>,
+    /// Filename (with extension) of the user's imported stop sound, stored in the
+    /// app data dir. Used only when `stop_sound` is `SoundTheme::Custom`.
+    #[serde(default)]
+    pub custom_stop_sound: Option<String>,
+    /// Selected UI theme id (e.g. "tokyo-night", "handy-light", "system"). The
+    /// concrete theme registry lives in the frontend; the backend only persists
+    /// the id, so adding themes needs no backend change.
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    /// Resolved light/dark appearance of `theme`, reported by the frontend. The
+    /// backend cannot derive this without duplicating the theme registry, and it
+    /// only needs it to theme the Windows title bar (which CSS cannot reach).
+    #[serde(default = "default_theme_appearance")]
+    pub theme_appearance: String,
     #[serde(default = "default_start_hidden")]
     pub start_hidden: bool,
     #[serde(default = "default_autostart_enabled")]
@@ -429,8 +439,6 @@ pub struct AppSettings {
     pub append_trailing_space: bool,
     #[serde(default = "default_app_language")]
     pub app_language: String,
-    #[serde(default = "default_theme")]
-    pub theme: Theme,
     #[serde(default)]
     pub experimental_enabled: bool,
     #[serde(default)]
@@ -571,8 +579,15 @@ fn default_sound_theme() -> SoundTheme {
     SoundTheme::Marimba
 }
 
-fn default_theme() -> Theme {
-    Theme::System
+fn default_theme() -> String {
+    "tokyo-night".to_string()
+}
+
+/// Light/dark appearance of the selected theme, reported by the frontend (which
+/// owns the theme registry). Persisted so the Windows title bar can be themed on
+/// startup without the backend needing to know what a theme id means.
+fn default_theme_appearance() -> String {
+    "dark".to_string()
 }
 
 fn default_post_process_enabled() -> bool {
@@ -842,7 +857,12 @@ pub fn get_default_settings() -> AppSettings {
         push_to_talk: default_push_to_talk(),
         audio_feedback: false,
         audio_feedback_volume: default_audio_feedback_volume(),
-        sound_theme: default_sound_theme(),
+        start_sound: default_sound_theme(),
+        stop_sound: default_sound_theme(),
+        custom_start_sound: None,
+        custom_stop_sound: None,
+        theme: default_theme(),
+        theme_appearance: default_theme_appearance(),
         start_hidden: default_start_hidden(),
         autostart_enabled: default_autostart_enabled(),
         update_checks_enabled: default_update_checks_enabled(),
@@ -878,7 +898,6 @@ pub fn get_default_settings() -> AppSettings {
         mute_while_recording: false,
         append_trailing_space: false,
         app_language: default_app_language(),
-        theme: default_theme(),
         experimental_enabled: false,
         lazy_stream_close: false,
         keyboard_implementation: KeyboardImplementation::default(),
@@ -1080,6 +1099,33 @@ fn apply_settings_migrations(
         updated = true;
     }
 
+    // One-time sound migration (only while the new per-slot key is absent): the
+    // single `sound_theme` field was split into independent `start_sound` and
+    // `stop_sound` slots. Copy the legacy value into both. A legacy `custom` theme
+    // implied hand-placed `custom_start.wav` / `custom_stop.wav`, so adopt those as
+    // the slot filenames — the resolver falls back to the built-in sound if a file
+    // turns out to be missing.
+    if settings_value.get("start_sound").is_none() {
+        if let Some(legacy) = settings_value.get("sound_theme").and_then(|v| v.as_str()) {
+            let theme = match legacy {
+                "pop" => SoundTheme::Pop,
+                "custom" => SoundTheme::Custom,
+                _ => SoundTheme::Marimba,
+            };
+            settings.start_sound = theme;
+            settings.stop_sound = theme;
+            if theme == SoundTheme::Custom {
+                if settings.custom_start_sound.is_none() {
+                    settings.custom_start_sound = Some("custom_start.wav".to_string());
+                }
+                if settings.custom_stop_sound.is_none() {
+                    settings.custom_stop_sound = Some("custom_stop.wav".to_string());
+                }
+            }
+            updated = true;
+        }
+    }
+
     updated
 }
 
@@ -1137,7 +1183,8 @@ mod tests {
 
     /// Frozen snapshot of a real v0.9.0-era settings store, as written to
     /// disk. This pins backwards compatibility: it must always parse strictly
-    /// (no salvage) and require no migration rewrite.
+    /// (no salvage), migrate only where a schema change genuinely requires it,
+    /// and then converge — never rewriting itself on every read.
     ///
     /// If a schema change breaks this test, do NOT just update the fixture —
     /// it stands in for the stores on users' machines. Add a
@@ -1145,7 +1192,7 @@ mod tests {
     /// `apply_settings_migrations` so old values keep loading, and only extend
     /// the fixture alongside that.
     #[test]
-    fn frozen_v0_9_store_parses_strictly_without_migration() {
+    fn frozen_v0_9_store_parses_strictly_and_migrates_once() {
         // Note "log_level": 2 — the legacy numeric format, kept deliberately.
         let stored: serde_json::Value = serde_json::from_str(
             r##"{
@@ -1247,10 +1294,17 @@ mod tests {
         assert_eq!(settings.selected_model, "whisper-large-v3-turbo");
         assert_eq!(settings.bindings["transcribe"].current_binding, "f13");
         assert_eq!(settings.log_level, LogLevel::Debug);
-        assert_eq!(settings.sound_theme, SoundTheme::Pop);
 
-        // A current-format store must not be rewritten on every read.
-        assert!(!apply_settings_migrations(&mut settings, &stored));
+        // A v0.9.0 store predates the start/stop sound split, so it migrates
+        // exactly once: the legacy `sound_theme` is copied into both slots.
+        assert!(apply_settings_migrations(&mut settings, &stored));
+        assert_eq!(settings.start_sound, SoundTheme::Pop);
+        assert_eq!(settings.stop_sound, SoundTheme::Pop);
+
+        // ...and then converges: the store as it gets written back must not be
+        // rewritten again on every subsequent read.
+        let rewritten = serde_json::to_value(&settings).unwrap();
+        assert!(!apply_settings_migrations(&mut settings, &rewritten));
     }
 
     #[test]
@@ -1264,7 +1318,7 @@ mod tests {
         map.insert("onboarding_completed".into(), serde_json::json!(true));
         // An enum variant this build doesn't know, e.g. written by a newer
         // version before a downgrade.
-        map.insert("sound_theme".into(), serde_json::json!("theremin"));
+        map.insert("start_sound".into(), serde_json::json!("theremin"));
         stored["bindings"]["transcribe"]["current_binding"] = serde_json::json!("f13");
 
         // Precondition: this is exactly the whole-store parse failure from
@@ -1275,7 +1329,7 @@ mod tests {
         assert_eq!(salvaged.selected_model, "parakeet-tdt-0.6b-v3");
         assert!(salvaged.onboarding_completed);
         assert_eq!(salvaged.bindings["transcribe"].current_binding, "f13");
-        assert_eq!(salvaged.sound_theme, default_sound_theme());
+        assert_eq!(salvaged.start_sound, default_sound_theme());
     }
 
     #[test]
@@ -1283,14 +1337,14 @@ mod tests {
         let mut stored = default_settings_json();
         let map = stored.as_object_mut().unwrap();
         map.insert("paste_delay_ms".into(), serde_json::json!("sixty"));
-        map.insert("sound_theme".into(), serde_json::json!(42));
+        map.insert("start_sound".into(), serde_json::json!(42));
         map.insert("custom_words".into(), serde_json::json!(["handy"]));
 
         assert!(serde_json::from_value::<AppSettings>(stored.clone()).is_err());
 
         let salvaged = salvage_settings(&stored);
         assert_eq!(salvaged.paste_delay_ms, default_paste_delay_ms());
-        assert_eq!(salvaged.sound_theme, default_sound_theme());
+        assert_eq!(salvaged.start_sound, default_sound_theme());
         assert_eq!(salvaged.custom_words, vec!["handy".to_string()]);
     }
 
@@ -1326,11 +1380,11 @@ mod tests {
             serde_json::json!({ "nested": true }),
         );
         map.insert("selected_model".into(), serde_json::json!("kept"));
-        map.insert("sound_theme".into(), serde_json::json!("theremin"));
+        map.insert("start_sound".into(), serde_json::json!("theremin"));
 
         let salvaged = salvage_settings(&stored);
         assert_eq!(salvaged.selected_model, "kept");
-        assert_eq!(salvaged.sound_theme, default_sound_theme());
+        assert_eq!(salvaged.start_sound, default_sound_theme());
     }
 
     #[test]
@@ -1405,6 +1459,89 @@ mod tests {
         assert!(apply_settings_migrations(&mut settings, &raw));
         assert_eq!(settings.overlay_style, OverlayStyle::Live);
         assert_eq!(settings.overlay_position, OverlayPosition::Top);
+    }
+
+    #[test]
+    fn default_theme_is_tokyo_night() {
+        let settings = get_default_settings();
+        assert_eq!(settings.theme, "tokyo-night");
+    }
+
+    #[test]
+    fn settings_without_theme_key_default_to_tokyo_night() {
+        // An older store predating the theme field must still deserialize, with the
+        // serde default filling `theme`.
+        let raw = serde_json::json!({
+            "audio_feedback": false,
+            "push_to_talk": true,
+            "bindings": {}
+        });
+        let settings: AppSettings =
+            serde_json::from_value(raw).expect("settings without a theme key should load");
+        assert_eq!(settings.theme, "tokyo-night");
+    }
+
+    #[test]
+    fn sound_migration_copies_legacy_theme_into_both_slots() {
+        let mut settings = get_default_settings();
+
+        // Legacy store: a single `sound_theme`, no per-slot keys yet.
+        let raw = serde_json::json!({
+            "selected_model": "",
+            "sound_theme": "pop"
+        });
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert_eq!(settings.start_sound, SoundTheme::Pop);
+        assert_eq!(settings.stop_sound, SoundTheme::Pop);
+        assert_eq!(settings.custom_start_sound, None);
+        assert_eq!(settings.custom_stop_sound, None);
+    }
+
+    #[test]
+    fn sound_migration_adopts_legacy_custom_files() {
+        let mut settings = get_default_settings();
+
+        // Legacy store: theme was "custom", implying hand-placed custom_*.wav files.
+        let raw = serde_json::json!({
+            "selected_model": "",
+            "sound_theme": "custom"
+        });
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert_eq!(settings.start_sound, SoundTheme::Custom);
+        assert_eq!(settings.stop_sound, SoundTheme::Custom);
+        assert_eq!(
+            settings.custom_start_sound.as_deref(),
+            Some("custom_start.wav")
+        );
+        assert_eq!(
+            settings.custom_stop_sound.as_deref(),
+            Some("custom_stop.wav")
+        );
+    }
+
+    #[test]
+    fn sound_migration_skips_when_slots_already_present() {
+        let mut settings = get_default_settings();
+        settings.start_sound = SoundTheme::Marimba;
+        settings.stop_sound = SoundTheme::Pop;
+
+        // New store already has per-slot keys; a stray legacy `sound_theme` must be
+        // ignored so the migration does not clobber the user's independent slots.
+        let raw = serde_json::json!({
+            "selected_model": "",
+            "start_sound": "marimba",
+            "stop_sound": "pop",
+            "sound_theme": "custom"
+        });
+
+        // Other migrations may or may not fire, but the sound slots must be untouched.
+        apply_settings_migrations(&mut settings, &raw);
+        assert_eq!(settings.start_sound, SoundTheme::Marimba);
+        assert_eq!(settings.stop_sound, SoundTheme::Pop);
+        assert_eq!(settings.custom_start_sound, None);
+        assert_eq!(settings.custom_stop_sound, None);
     }
 
     #[test]

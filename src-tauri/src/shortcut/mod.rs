@@ -23,7 +23,7 @@ use tauri_plugin_autostart::ManagerExt;
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, KeyboardImplementation, LLMPrompt,
-    OverlayPosition, OverlayStyle, PasteMethod, ShortcutBinding, SoundTheme, Theme, TypingTool,
+    OverlayPosition, OverlayStyle, PasteMethod, ShortcutBinding, SoundTheme, TypingTool,
     APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::tray;
@@ -496,11 +496,8 @@ pub fn change_audio_feedback_volume_setting(app: AppHandle, volume: f32) -> Resu
     Ok(())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub fn change_sound_theme_setting(app: AppHandle, theme: String) -> Result<(), String> {
-    let mut settings = settings::get_settings(&app);
-    let parsed = match theme.as_str() {
+fn parse_sound_theme(theme: &str) -> SoundTheme {
+    match theme {
         "marimba" => SoundTheme::Marimba,
         "pop" => SoundTheme::Pop,
         "custom" => SoundTheme::Custom,
@@ -508,42 +505,64 @@ pub fn change_sound_theme_setting(app: AppHandle, theme: String) -> Result<(), S
             warn!("Invalid sound theme '{}', defaulting to marimba", other);
             SoundTheme::Marimba
         }
-    };
-    settings.sound_theme = parsed;
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_start_sound_setting(app: AppHandle, theme: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.start_sound = parse_sound_theme(&theme);
     settings::write_settings(&app, settings);
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_theme_setting(app: AppHandle, theme: String) -> Result<(), String> {
+pub fn change_stop_sound_setting(app: AppHandle, theme: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    let parsed = match theme.as_str() {
-        "system" => Theme::System,
-        "light" => Theme::Light,
-        "dark" => Theme::Dark,
-        other => {
-            warn!("Invalid theme '{}', defaulting to system", other);
-            Theme::System
-        }
-    };
-    settings.theme = parsed;
+    settings.stop_sound = parse_sound_theme(&theme);
     settings::write_settings(&app, settings);
-    #[cfg(target_os = "windows")]
-    apply_window_theme(&app, parsed);
     Ok(())
 }
 
-/// Applies the appearance setting to the Windows title bar, which CSS
-/// `data-theme` cannot reach. `System` clears the override so the window follows
-/// Windows. Call this on startup and whenever the setting changes to keep the
-/// title bar in sync with the in-app palette.
+/// Persist the selected UI theme id. The frontend owns the theme registry and
+/// resolves unknown/legacy ids, so this stores the id as-is. `appearance` is the
+/// resolved "light"/"dark" of that theme, which the backend cannot derive without
+/// duplicating the registry — it is needed only for the Windows title bar.
+#[tauri::command]
+#[specta::specta]
+pub fn change_theme_setting(
+    app: AppHandle,
+    theme: String,
+    appearance: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.theme = theme;
+    settings.theme_appearance = appearance;
+    settings::write_settings(&app, settings.clone());
+    #[cfg(target_os = "windows")]
+    apply_window_theme(&app, &settings.theme, &settings.theme_appearance);
+    Ok(())
+}
+
+/// Applies the appearance to the Windows title bar, which CSS `data-theme` cannot
+/// reach. The "system" theme clears the override so the title bar follows Windows;
+/// any concrete theme forces the title bar to that theme's appearance. Call this on
+/// startup and whenever the setting changes to keep the title bar in sync.
 #[cfg(target_os = "windows")]
-pub fn apply_window_theme(app: &AppHandle, theme: Theme) {
-    let window_theme = match theme {
-        Theme::System => None,
-        Theme::Light => Some(tauri::Theme::Light),
-        Theme::Dark => Some(tauri::Theme::Dark),
+pub fn apply_window_theme(app: &AppHandle, theme: &str, appearance: &str) {
+    let window_theme = if theme == "system" {
+        None
+    } else {
+        match appearance {
+            "light" => Some(tauri::Theme::Light),
+            "dark" => Some(tauri::Theme::Dark),
+            other => {
+                warn!("Unknown theme appearance '{}'; following the OS", other);
+                None
+            }
+        }
     };
     if let Some(window) = app.get_webview_window("main") {
         if let Err(e) = window.set_theme(window_theme) {

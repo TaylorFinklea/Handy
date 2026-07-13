@@ -1,49 +1,50 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Dropdown } from "../ui/Dropdown";
+import { Dropdown, DropdownOption } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
-import { useSettings } from "@/hooks/useSettings";
-import { applyTheme, THEME_OPTIONS } from "@/lib/utils/theme";
-import type { Theme } from "@/bindings";
+import { useSettings } from "../../hooks/useSettings";
+import {
+  THEME_OPTIONS,
+  THEMES,
+  SYSTEM_THEME,
+  DEFAULT_THEME,
+} from "../../lib/themes";
 
 interface ThemeSelectorProps {
-  descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
+  descriptionMode?: "inline" | "tooltip";
 }
 
-export const ThemeSelector: React.FC<ThemeSelectorProps> = React.memo(
-  ({ descriptionMode = "tooltip", grouped = false }) => {
-    const { t } = useTranslation();
-    const { settings, updateSetting } = useSettings();
+export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
+  grouped = true,
+  descriptionMode = "tooltip",
+}) => {
+  const { t } = useTranslation();
+  const { getSetting, updateSetting } = useSettings();
+  const selected = getSetting("theme") ?? DEFAULT_THEME;
 
-    const currentTheme: Theme = settings?.theme ?? "system";
+  const options: DropdownOption[] = THEME_OPTIONS.map(({ id }) => ({
+    value: id,
+    // Theme names are proper nouns from the registry; only "System" is translated.
+    label:
+      id === SYSTEM_THEME
+        ? t("settings.theme.system")
+        : (THEMES.find((theme) => theme.id === id)?.label ?? id),
+  }));
 
-    const themeOptions = THEME_OPTIONS.map((value) => ({
-      value,
-      label: t(`theme.options.${value}`),
-    }));
-
-    const handleThemeChange = (value: string) => {
-      const theme = value as Theme;
-      applyTheme(theme);
-      updateSetting("theme", theme);
-    };
-
-    return (
-      <SettingContainer
-        title={t("theme.title")}
-        description={t("theme.description")}
-        descriptionMode={descriptionMode}
-        grouped={grouped}
-      >
-        <Dropdown
-          options={themeOptions}
-          selectedValue={currentTheme}
-          onSelect={handleThemeChange}
-        />
-      </SettingContainer>
-    );
-  },
-);
-
-ThemeSelector.displayName = "ThemeSelector";
+  return (
+    <SettingContainer
+      title={t("settings.theme.label")}
+      description={t("settings.theme.description")}
+      grouped={grouped}
+      descriptionMode={descriptionMode}
+      layout="horizontal"
+    >
+      <Dropdown
+        selectedValue={selected}
+        onSelect={(value) => updateSetting("theme", value)}
+        options={options}
+      />
+    </SettingContainer>
+  );
+};

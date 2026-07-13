@@ -9,9 +9,28 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use tauri::{AppHandle, Manager};
 
+#[derive(Clone, Copy)]
 pub enum SoundType {
     Start,
     Stop,
+}
+
+impl SoundType {
+    /// The built-in resource path for `theme` in this slot.
+    fn builtin_path(self, theme: SoundTheme) -> String {
+        match self {
+            SoundType::Start => theme.to_start_path(),
+            SoundType::Stop => theme.to_stop_path(),
+        }
+    }
+}
+
+/// The theme selected for a slot and its imported custom filename (if any).
+fn slot_sound(settings: &AppSettings, sound_type: SoundType) -> (SoundTheme, Option<&String>) {
+    match sound_type {
+        SoundType::Start => (settings.start_sound, settings.custom_start_sound.as_ref()),
+        SoundType::Stop => (settings.stop_sound, settings.custom_stop_sound.as_ref()),
+    }
 }
 
 fn resolve_sound_path(
@@ -19,30 +38,29 @@ fn resolve_sound_path(
     settings: &AppSettings,
     sound_type: SoundType,
 ) -> Option<PathBuf> {
-    let sound_file = get_sound_path(settings, sound_type);
-    let base_dir = get_sound_base_dir(settings);
-    match base_dir {
-        tauri::path::BaseDirectory::AppData => {
-            crate::portable::resolve_app_data(app, &sound_file).ok()
+    let (theme, custom) = slot_sound(settings, sound_type);
+
+    if theme == SoundTheme::Custom {
+        // Use the imported file when it is set and still present on disk;
+        // otherwise fall back to the default built-in sound for this slot.
+        if let Some(name) = custom {
+            if let Ok(path) = crate::portable::resolve_app_data(app, name) {
+                if path.exists() {
+                    return Some(path);
+                }
+            }
         }
-        _ => app.path().resolve(&sound_file, base_dir).ok(),
+        let fallback = sound_type.builtin_path(SoundTheme::Marimba);
+        return app
+            .path()
+            .resolve(&fallback, tauri::path::BaseDirectory::Resource)
+            .ok();
     }
-}
 
-fn get_sound_path(settings: &AppSettings, sound_type: SoundType) -> String {
-    match (settings.sound_theme, sound_type) {
-        (SoundTheme::Custom, SoundType::Start) => "custom_start.wav".to_string(),
-        (SoundTheme::Custom, SoundType::Stop) => "custom_stop.wav".to_string(),
-        (_, SoundType::Start) => settings.sound_theme.to_start_path(),
-        (_, SoundType::Stop) => settings.sound_theme.to_stop_path(),
-    }
-}
-
-fn get_sound_base_dir(settings: &AppSettings) -> tauri::path::BaseDirectory {
-    match settings.sound_theme {
-        SoundTheme::Custom => tauri::path::BaseDirectory::AppData,
-        _ => tauri::path::BaseDirectory::Resource,
-    }
+    let sound_file = sound_type.builtin_path(theme);
+    app.path()
+        .resolve(&sound_file, tauri::path::BaseDirectory::Resource)
+        .ok()
 }
 
 pub fn play_feedback_sound(app: &AppHandle, sound_type: SoundType) {
@@ -139,4 +157,39 @@ fn play_audio_file(
     sink.sleep_until_end();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::get_default_settings;
+
+    #[test]
+    fn builtin_path_matches_theme_and_slot() {
+        assert_eq!(
+            SoundType::Start.builtin_path(SoundTheme::Pop),
+            "resources/pop_start.wav"
+        );
+        assert_eq!(
+            SoundType::Stop.builtin_path(SoundTheme::Marimba),
+            "resources/marimba_stop.wav"
+        );
+    }
+
+    #[test]
+    fn slot_sound_reads_slots_independently() {
+        let mut s = get_default_settings();
+        s.start_sound = SoundTheme::Custom;
+        s.custom_start_sound = Some("custom_start.mp3".to_string());
+        s.stop_sound = SoundTheme::Pop;
+        s.custom_stop_sound = None;
+
+        let (start_theme, start_custom) = slot_sound(&s, SoundType::Start);
+        assert_eq!(start_theme, SoundTheme::Custom);
+        assert_eq!(start_custom.map(String::as_str), Some("custom_start.mp3"));
+
+        let (stop_theme, stop_custom) = slot_sound(&s, SoundType::Stop);
+        assert_eq!(stop_theme, SoundTheme::Pop);
+        assert_eq!(stop_custom, None);
+    }
 }

@@ -8,6 +8,7 @@ import type {
   OrtAcceleratorSetting,
 } from "@/bindings";
 import { commands } from "@/bindings";
+import { resolveAppearance, systemPrefersDark } from "@/lib/themes";
 
 interface SettingsStore {
   settings: Settings | null;
@@ -16,7 +17,6 @@ interface SettingsStore {
   isUpdating: Record<string, boolean>;
   audioDevices: AudioDevice[];
   outputDevices: AudioDevice[];
-  customSounds: { start: boolean; stop: boolean };
   postProcessModelOptions: Record<string, string[]>;
 
   // Actions
@@ -35,7 +35,11 @@ interface SettingsStore {
   getSetting: <K extends keyof Settings>(key: K) => Settings[K] | undefined;
   isUpdatingKey: (key: string) => boolean;
   playTestSound: (soundType: "start" | "stop") => Promise<void>;
-  checkCustomSounds: () => Promise<void>;
+  setCustomSound: (
+    soundType: "start" | "stop",
+    sourcePath: string,
+  ) => Promise<void>;
+  clearCustomSound: (soundType: "start" | "stop") => Promise<void>;
   setPostProcessProvider: (providerId: string) => Promise<void>;
   updatePostProcessSetting: (
     settingType: "base_url" | "api_key" | "model",
@@ -61,7 +65,6 @@ interface SettingsStore {
   setUpdating: (key: string, updating: boolean) => void;
   setAudioDevices: (devices: AudioDevice[]) => void;
   setOutputDevices: (devices: AudioDevice[]) => void;
-  setCustomSounds: (sounds: { start: boolean; stop: boolean }) => void;
 }
 
 // Note: Default settings are now fetched from Rust via commands.getDefaultSettings()
@@ -82,7 +85,13 @@ const settingUpdaters: {
     commands.changeAudioFeedbackSetting(value as boolean),
   audio_feedback_volume: (value) =>
     commands.changeAudioFeedbackVolumeSetting(value as number),
-  sound_theme: (value) => commands.changeSoundThemeSetting(value as string),
+  start_sound: (value) => commands.changeStartSoundSetting(value as string),
+  stop_sound: (value) => commands.changeStopSoundSetting(value as string),
+  theme: (value) =>
+    commands.changeThemeSetting(
+      value as string,
+      resolveAppearance(value as string, systemPrefersDark()),
+    ),
   start_hidden: (value) => commands.changeStartHiddenSetting(value as boolean),
   autostart_enabled: (value) =>
     commands.changeAutostartSetting(value as boolean),
@@ -145,7 +154,6 @@ const settingUpdaters: {
     commands.changeAppendTrailingSpaceSetting(value as boolean),
   log_level: (value) => commands.setLogLevel(value as any),
   app_language: (value) => commands.changeAppLanguageSetting(value as string),
-  theme: (value) => commands.changeThemeSetting(value as string),
   experimental_enabled: (value) =>
     commands.changeExperimentalEnabledSetting(value as boolean),
   lazy_stream_close: (value) =>
@@ -174,7 +182,6 @@ export const useSettingsStore = create<SettingsStore>()(
     isUpdating: {},
     audioDevices: [],
     outputDevices: [],
-    customSounds: { start: false, stop: false },
     postProcessModelOptions: {},
 
     // Internal setters
@@ -187,7 +194,6 @@ export const useSettingsStore = create<SettingsStore>()(
       })),
     setAudioDevices: (audioDevices) => set({ audioDevices }),
     setOutputDevices: (outputDevices) => set({ outputDevices }),
-    setCustomSounds: (customSounds) => set({ customSounds }),
 
     // Getters
     getSetting: (key) => get().settings?.[key],
@@ -269,13 +275,26 @@ export const useSettingsStore = create<SettingsStore>()(
       }
     },
 
-    checkCustomSounds: async () => {
-      try {
-        const sounds = await commands.checkCustomSounds();
-        get().setCustomSounds(sounds);
-      } catch (error) {
-        console.error("Failed to check custom sounds:", error);
+    // Import a user-selected file as the custom sound for a slot. The backend
+    // validates + stores the file and sets the slot to "custom"; we refresh so the
+    // UI reflects the backend-owned enum + filename. Throws on failure so callers
+    // can surface the error and revert any optimistic UI.
+    setCustomSound: async (soundType: "start" | "stop", sourcePath: string) => {
+      const result = await commands.setCustomSound(soundType, sourcePath);
+      if (result.status === "error") {
+        throw new Error(result.error);
       }
+      await get().refreshSettings();
+    },
+
+    // Clear a slot's custom sound; the backend deletes the file and resets the
+    // slot to the default built-in theme.
+    clearCustomSound: async (soundType: "start" | "stop") => {
+      const result = await commands.clearCustomSound(soundType);
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
+      await get().refreshSettings();
     },
 
     // Update a specific setting
@@ -583,17 +602,13 @@ export const useSettingsStore = create<SettingsStore>()(
 
     // Initialize everything
     initialize: async () => {
-      const { refreshSettings, checkCustomSounds, loadDefaultSettings } = get();
+      const { refreshSettings, loadDefaultSettings } = get();
 
       // Note: Audio devices are NOT refreshed here. The frontend (App.tsx)
       // is responsible for calling refreshAudioDevices/refreshOutputDevices
       // after onboarding completes. This avoids triggering permission dialogs
       // on macOS before the user is ready.
-      await Promise.all([
-        loadDefaultSettings(),
-        refreshSettings(),
-        checkCustomSounds(),
-      ]);
+      await Promise.all([loadDefaultSettings(), refreshSettings()]);
 
       // Re-fetch settings when the backend changes them (e.g. language
       // reset during model switch). The backend is the source of truth.

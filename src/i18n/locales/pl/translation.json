@@ -237,7 +237,25 @@
       "volume": {
         "title": "Głośność",
         "description": "Dostosuj głośność dźwięków informacyjnych"
-      }
+      },
+      "startSound": {
+        "label": "Start Sound",
+        "description": "Sound played when recording starts"
+      },
+      "stopSound": {
+        "label": "Stop Sound",
+        "description": "Sound played when recording stops"
+      },
+      "theme": {
+        "marimba": "Marimba",
+        "pop": "Pop",
+        "custom": "Custom"
+      },
+      "chooseFile": "Choose file...",
+      "preview": "Preview",
+      "reset": "Reset to default",
+      "dropHint": "Drop an audio file to use it",
+      "unsupportedFormat": "Unsupported format. Use WAV, MP3, FLAC, or OGG."
     },
     "advanced": {
       "groups": {
@@ -463,10 +481,6 @@
         "label": "Sprawdzaj aktualizacje",
         "description": "Automatycznie sprawdzaj nowe wersje Handy"
       },
-      "soundTheme": {
-        "label": "Motyw dźwiękowy",
-        "description": "Wybierz motyw dźwiękowy dla informacji o rozpoczęciu i zakończeniu nagrywania"
-      },
       "wordCorrectionThreshold": {
         "title": "Próg korekty słów",
         "description": "Czułość dla własnych korekt słów"
@@ -568,6 +582,14 @@
         "label": "Pokaż nowości",
         "description": "Pokazuj informacje o wydaniu po aktualizacjach Handy"
       }
+    },
+    "appearance": {
+      "title": "Appearance"
+    },
+    "theme": {
+      "label": "Theme",
+      "description": "Choose the color theme for the app",
+      "system": "System"
     }
   },
   "footer": {

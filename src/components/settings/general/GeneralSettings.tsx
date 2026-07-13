@@ -7,6 +7,8 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { OutputDeviceSelector } from "../OutputDeviceSelector";
 import { PushToTalk } from "../PushToTalk";
 import { AudioFeedback } from "../AudioFeedback";
+import { SoundPicker } from "../SoundPicker";
+import { ThemeSelector } from "../ThemeSelector";
 import { useSettings } from "../../../hooks/useSettings";
 import { VolumeSlider } from "../VolumeSlider";
 import { MuteWhileRecording } from "../MuteWhileRecording";
@@ -19,6 +21,9 @@ export const GeneralSettings: React.FC = () => {
   const isLinux = type() === "linux";
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
+      <SettingsGroup title={t("settings.appearance.title")}>
+        <ThemeSelector descriptionMode="tooltip" grouped={true} />
+      </SettingsGroup>
       <SettingsGroup title={t("settings.general.title")}>
         <ShortcutInput shortcutId="transcribe" grouped={true} />
         <PushToTalk descriptionMode="tooltip" grouped={true} />
@@ -32,6 +37,11 @@ export const GeneralSettings: React.FC = () => {
         <MicrophoneSelector descriptionMode="tooltip" grouped={true} />
         <MuteWhileRecording descriptionMode="tooltip" grouped={true} />
         <AudioFeedback descriptionMode="tooltip" grouped={true} />
+        <SoundPicker
+          descriptionMode="tooltip"
+          grouped={true}
+          disabled={!audioFeedbackEnabled}
+        />
         <OutputDeviceSelector
           descriptionMode="tooltip"
           grouped={true}

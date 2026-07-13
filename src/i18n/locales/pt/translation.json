@@ -237,7 +237,25 @@
       "volume": {
         "title": "Volume",
         "description": "Ajustar o volume dos sons de feedback de áudio"
-      }
+      },
+      "startSound": {
+        "label": "Start Sound",
+        "description": "Sound played when recording starts"
+      },
+      "stopSound": {
+        "label": "Stop Sound",
+        "description": "Sound played when recording stops"
+      },
+      "theme": {
+        "marimba": "Marimba",
+        "pop": "Pop",
+        "custom": "Custom"
+      },
+      "chooseFile": "Choose file...",
+      "preview": "Preview",
+      "reset": "Reset to default",
+      "dropHint": "Drop an audio file to use it",
+      "unsupportedFormat": "Unsupported format. Use WAV, MP3, FLAC, or OGG."
     },
     "advanced": {
       "groups": {
@@ -463,10 +481,6 @@
         "label": "Verificar Atualizações",
         "description": "Verificar automaticamente novas versões do Handy"
       },
-      "soundTheme": {
-        "label": "Tema de Som",
-        "description": "Escolha um tema de som para feedback de início e parada de gravação"
-      },
       "wordCorrectionThreshold": {
         "title": "Limite de Correção de Palavras",
         "description": "Sensibilidade para correções de palavras personalizadas"
@@ -568,6 +582,14 @@
         "label": "Mostrar novidades",
         "description": "Mostrar notas de versão após atualizações do Handy"
       }
+    },
+    "appearance": {
+      "title": "Appearance"
+    },
+    "theme": {
+      "label": "Theme",
+      "description": "Choose the color theme for the app",
+      "system": "System"
     }
   },
   "footer": {

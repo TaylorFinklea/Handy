@@ -538,7 +538,8 @@ pub fn run(cli_args: CliArgs) {
             shortcut::change_ptt_setting,
             shortcut::change_audio_feedback_setting,
             shortcut::change_audio_feedback_volume_setting,
-            shortcut::change_sound_theme_setting,
+            shortcut::change_start_sound_setting,
+            shortcut::change_stop_sound_setting,
             shortcut::change_theme_setting,
             shortcut::change_start_hidden_setting,
             shortcut::change_autostart_setting,
@@ -625,7 +626,8 @@ pub fn run(cli_args: CliArgs) {
             commands::audio::set_selected_output_device,
             commands::audio::get_selected_output_device,
             commands::audio::play_test_sound,
-            commands::audio::check_custom_sounds,
+            commands::audio::set_custom_sound,
+            commands::audio::clear_custom_sound,
             commands::audio::set_clamshell_microphone,
             commands::audio::get_clamshell_microphone,
             commands::audio::is_recording,
@@ -822,7 +824,7 @@ pub fn run(cli_args: CliArgs) {
             // of the wrong theme. On macOS/Linux, Tauri themes are app-wide and
             // would also affect windows that intentionally keep the system theme.
             #[cfg(target_os = "windows")]
-            shortcut::apply_window_theme(app.handle(), settings.theme);
+            shortcut::apply_window_theme(app.handle(), &settings.theme, &settings.theme_appearance);
 
             // CLI --debug flag overrides debug_mode and log level (runtime-only, not persisted)
             if cli_args.debug {
