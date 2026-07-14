@@ -75,7 +75,7 @@ pub struct AudioRecorder {
     cmd_tx: Option<mpsc::Sender<Cmd>>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
     vad: Option<VadConfig>,
-    level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
+    level_cb: Option<Arc<dyn Fn(f32) + Send + Sync + 'static>>,
     audio_cb: Option<AudioFrameCallback>,
     /// Preferred stream config cached per device name. The two HAL property
     /// queries in `get_preferred_config` cost ~40-85ms per open (worse on
@@ -118,7 +118,7 @@ impl AudioRecorder {
 
     pub fn with_level_callback<F>(mut self, cb: F) -> Self
     where
-        F: Fn(Vec<f32>) + Send + Sync + 'static,
+        F: Fn(f32) + Send + Sync + 'static,
     {
         self.level_cb = Some(Arc::new(cb));
         self
@@ -519,7 +519,7 @@ fn run_consumer(
     vad: Option<VadConfig>,
     sample_rx: mpsc::Receiver<AudioChunk>,
     cmd_rx: mpsc::Receiver<Cmd>,
-    level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
+    level_cb: Option<Arc<dyn Fn(f32) + Send + Sync + 'static>>,
     audio_cb: Option<AudioFrameCallback>,
     stop_flag: Arc<AtomicBool>,
     stream_running_at: Instant,
@@ -541,23 +541,13 @@ fn run_consumer(
     let mut first_chunk_logged = false;
     let mut awaiting_first_captured_chunk: Option<Instant> = None;
 
-    // ---------- spectrum visualisation setup ---------------------------- //
-    const BUCKETS: usize = 16;
-    // Scale the FFT window to the device sample rate so the analysis window
-    // (~33 ms) and frequency resolution (~30 Hz/bin) stay roughly constant
-    // across devices. A fixed 512-sample window collapses the low vocal
-    // buckets onto a single bin at 48 kHz (e.g. built-in laptop mics), and
-    // would stutter at ~4-8 updates/sec on an 8-16 kHz Bluetooth headset.
-    // Targets: 48 kHz -> 2048, 16 kHz -> 512, 8 kHz -> 256.
-    let target_window = (f64::from(in_sample_rate) / 30.0).round() as usize;
-    let window_size = [256usize, 512, 1024, 2048]
-        .into_iter()
-        .min_by_key(|w| w.abs_diff(target_window))
-        .unwrap();
+    // ---------- level metering setup ------------------------------------ //
+    // A band-limited RMS meter, not a spectrum: the overlay draws one scrolling
+    // waveform, so a single vocal-band level per frame is all the UI consumes.
+    // The meter derives its own frame size from the sample rate, so it needs no
+    // device-dependent window tuning here.
     let mut visualizer = AudioVisualiser::new(
         in_sample_rate,
-        window_size,
-        BUCKETS,
         400.0,  // vocal_min_hz
         4000.0, // vocal_max_hz
     );
@@ -714,10 +704,17 @@ fn run_consumer(
             );
         }
 
-        // ---------- spectrum processing ---------------------------------- //
-        if let Some(buckets) = visualizer.feed(&raw) {
-            if let Some(cb) = &level_cb {
-                cb(buckets);
+        // ---------- level metering --------------------------------------- //
+        // Gated on `recording`. In always-on microphone mode the stream stays open
+        // between recordings, and without this gate the meter ran — and pushed a
+        // `mic-level` event into the (hidden) overlay webview — continuously, all
+        // day. That is a per-event WebKit allocation on a window nobody is looking
+        // at, of exactly the class investigated in issue #1279.
+        if recording {
+            if let Some(level) = visualizer.feed(&raw) {
+                if let Some(cb) = &level_cb {
+                    cb(level);
+                }
             }
         }
 

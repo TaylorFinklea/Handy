@@ -395,6 +395,7 @@ fn show_overlay_state(app_handle: &AppHandle, state: &str) {
         #[cfg(target_os = "windows")]
         force_overlay_topmost(&overlay_window);
 
+        OVERLAY_VISIBLE.store(true, Ordering::Relaxed);
         let _ = overlay_window.emit("show-overlay", state);
         log::debug!(
             "overlay '{}': set_size={:?} pos_calc={:?} set_pos={:?} show={:?}",
@@ -451,6 +452,8 @@ pub fn hide_recording_overlay(app_handle: &AppHandle) {
     // Always hide the overlay regardless of settings - if setting was changed while recording,
     // we still want to hide it properly
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        // Stop feeding levels immediately — before the fade-out even finishes.
+        OVERLAY_VISIBLE.store(false, Ordering::Relaxed);
         // Emit event to trigger fade-out animation
         let _ = overlay_window.emit("hide-overlay", ());
         // Hide the window after a short delay to allow animation to complete
@@ -468,6 +471,13 @@ pub fn hide_recording_overlay(app_handle: &AppHandle) {
 // populates the cache from initial settings.
 static OVERLAY_ENABLED: AtomicBool = AtomicBool::new(false);
 
+// Whether the overlay window is currently shown. The `OVERLAY_ENABLED` flag above only
+// tracks the *setting*; on its own it let level events stream into a hidden overlay
+// webview for as long as the app was running (in always-on microphone mode, all day).
+// Each event costs a WebKit allocation on a window nobody is looking at — the
+// accumulation investigated in issue #1279. Emission is now gated on both.
+static OVERLAY_VISIBLE: AtomicBool = AtomicBool::new(false);
+
 /// Update the cached overlay-enabled flag. Called from `lib.rs` at
 /// startup after settings load, and from `change_overlay_style_setting`
 /// whenever the user changes whether the overlay is shown.
@@ -475,7 +485,8 @@ pub fn update_overlay_enabled_cache(enabled: bool) {
     OVERLAY_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
-pub fn emit_levels(app_handle: &AppHandle, levels: &[f32]) {
+/// Push one vocal-band level (dBFS) to the overlay's waveform.
+pub fn emit_level(app_handle: &AppHandle, level: f32) {
     // Skip emission when the overlay is disabled. The recording_overlay
     // window is created at boot regardless of overlay_style, so without this
     // guard a hidden overlay's WebKit subprocess still
@@ -485,6 +496,12 @@ pub fn emit_levels(app_handle: &AppHandle, levels: &[f32]) {
     // For users with `overlay_style: none` (the Linux default) this skip
     // eliminates the upstream driver of that accumulation.
     if !OVERLAY_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+
+    // Skip emission while the overlay is not actually on screen. The setting being
+    // enabled is not the same as the window being shown — see OVERLAY_VISIBLE.
+    if !OVERLAY_VISIBLE.load(Ordering::Relaxed) {
         return;
     }
 
@@ -511,5 +528,5 @@ pub fn emit_levels(app_handle: &AppHandle, levels: &[f32]) {
     // `emit_to` with the overlay's window label produces a single
     // eval_script call per callback, cutting the per-callback WebKit
     // dispatch work in half.
-    let _ = app_handle.emit_to("recording_overlay", "mic-level", levels);
+    let _ = app_handle.emit_to("recording_overlay", "mic-level", level);
 }

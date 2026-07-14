@@ -22,15 +22,15 @@ the exact code path against synthetic speech-like signals.
 
 **1. (Dominant) The fixed dB window silently clamps real speech to zero.**
 `DB_MIN = -55.0` / `DB_MAX = -8.0` (visualizer.rs:4-5) are calibrated as if for a
-*tone-like*, energy-concentrated signal. Real speech is **broadband**: its energy is
-spread across many FFT bins, so each bucket's *average* power lands far lower than a
+_tone-like_, energy-concentrated signal. Real speech is **broadband**: its energy is
+spread across many FFT bins, so each bucket's _average_ power lands far lower than a
 tone of the same amplitude would. Measured, through the current formula:
 
-| Input | Per-bucket dB | Resulting bar heights (floor 3px, max 18px) |
-|---|---|---|
-| Loud speech (rms 0.2) | −56…−49 | 3–9px — never exceeds half height |
-| Normal speech (rms 0.05) | −68…−60 | **all 9 bars at the 3px floor** |
-| Quiet speech (rms 0.01) | −83…−76 | all at floor |
+| Input                    | Per-bucket dB | Resulting bar heights (floor 3px, max 18px) |
+| ------------------------ | ------------- | ------------------------------------------- |
+| Loud speech (rms 0.2)    | −56…−49       | 3–9px — never exceeds half height           |
+| Normal speech (rms 0.05) | −68…−60       | **all 9 bars at the 3px floor**             |
+| Quiet speech (rms 0.01)  | −83…−76       | all at floor                                |
 
 Normal speech falls **below `DB_MIN`**, is clamped to 0, and renders as the flat dots
 in the bug report. This is the cause; everything else is secondary. It is also
@@ -44,15 +44,15 @@ constant.
 **≈ −9 dB** for a 1-bin bucket, **≈ −17 dB** for a 10-bin bucket. Real, worth fixing,
 but roughly an order of magnitude smaller than cause #1.
 
-*(An earlier draft of this spec claimed a "−66 dB offset". That was wrong: 20·log10(2048)
+_(An earlier draft of this spec claimed a "−66 dB offset". That was wrong: 20·log10(2048)
 is the offset of dividing by N versus dividing by 1, but a correct normalization also
-divides by ~N, so only the delta is error.)*
+divides by ~N, so only the delta is error.)_
 
 **3. (Secondary) The response is over-damped — but not where it looks.**
 The real damping is the **symmetric** smoothing `prev * 0.7 + target * 0.3`
 (RecordingOverlay.tsx:91), which slows attacks exactly as much as decays, plus only
 15px of travel (3→18px). The `pow(0.7)` applied twice (visualizer.rs:137 and
-RecordingOverlay.tsx:159) is a gamma **expansion**, not a compression — it *lifts*
+RecordingOverlay.tsx:159) is a gamma **expansion**, not a compression — it _lifts_
 small values (`0.1^0.7 = 0.20`). It flattens contrast at the top of the range; it is
 not what pins the bars to the floor.
 
@@ -63,31 +63,31 @@ away), but named so it is not reintroduced.
 
 **5. (Pre-existing bug, found during review) Levels are emitted even when not recording.**
 `visualizer.feed(&raw)` (recorder.rs:718) is **not** inside any `if recording` guard,
-and `emit_levels` (overlay.rs:478) gates only on the `OVERLAY_ENABLED` *setting* — not
+and `emit_levels` (overlay.rs:478) gates only on the `OVERLAY_ENABLED` _setting_ — not
 on whether the overlay is actually shown. In always-on microphone mode with the overlay
 enabled, `mic-level` events therefore stream into a **hidden** overlay webview at ~23 Hz
 all day. This is very plausibly a live driver of the WebKit memory growth in issue
 **#1279**, and it must be fixed here — because this design makes each event's handler
-*more* expensive, which would otherwise make #1279 worse.
+_more_ expensive, which would otherwise make #1279 worse.
 
 ## Decisions
 
-| Decision | Choice |
-|---|---|
-| Amplitude model | **Auto-gain** — normalize against the user's recent speech level |
-| Visual scope | **Shared polish across all overlay states** |
-| Waveform form | **Fluid continuous wave** (not bars) |
-| Wave motion | **Scrolling history** — newest at the leading edge, ~2s trail |
-| Envelope | **Snappy** — fast attack, ~180ms release |
-| DSP placement | **Split** — Rust is a correct signal source; TypeScript owns the feel |
+| Decision        | Choice                                                                |
+| --------------- | --------------------------------------------------------------------- |
+| Amplitude model | **Auto-gain** — normalize against the user's recent speech level      |
+| Visual scope    | **Shared polish across all overlay states**                           |
+| Waveform form   | **Fluid continuous wave** (not bars)                                  |
+| Wave motion     | **Scrolling history** — newest at the leading edge, ~2s trail         |
+| Envelope        | **Snappy** — fast attack, ~180ms release                              |
+| DSP placement   | **Split** — Rust is a correct signal source; TypeScript owns the feel |
 
 ### Why the split
 
-Rust's job is to be *correct*: emit one properly-calibrated vocal-band level per frame,
+Rust's job is to be _correct_: emit one properly-calibrated vocal-band level per frame,
 with no gain constants and no opinion about feel. The frontend owns everything
-*perceptual*: auto-gain, envelope, history, rendering. This puts every knob governing
+_perceptual_: auto-gain, envelope, history, rendering. This puts every knob governing
 "does this feel alive" behind Vite hot-reload — tunable against a real voice in seconds
-instead of a multi-minute Rust rebuild — while the part that must be *correct* stays in
+instead of a multi-minute Rust rebuild — while the part that must be _correct_ stays in
 Rust with unit tests.
 
 ## Architecture
@@ -101,7 +101,7 @@ is safe.
 
 ### Backend — replace the FFT with a band-pass + RMS
 
-**Drop the FFT for this path entirely.** A 2048-point FFT is only earned by *spectral*
+**Drop the FFT for this path entirely.** A 2048-point FFT is only earned by _spectral_
 information, and this design throws the spectrum away. For a single vocal-band scalar, a
 **4-pole IIR band-pass (400–4000 Hz) followed by RMS over the frame** is roughly an order
 of magnitude cheaper, perceptually equivalent, and — decisively — **trivially calibrated**:
@@ -122,7 +122,7 @@ current code got wrong.
 
 **If the FFT is kept anyway** (e.g. a spectral feature is anticipated), the band-summed
 RMS normalization is `RMS = sqrt(Σ|X[k]|²) · √2 / (N · √g₂)` where `g₂ = (1/N)Σw[n]² = 3/8`
-for Hann — the window **power gain**, *not* the coherent gain (0.5). Verified numerically:
+for Hann — the window **power gain**, _not_ the coherent gain (0.5). Verified numerically:
 this yields exactly −3.01 dBFS for a full-scale sine and −23.01 at −20 dBFS (0.00 dB error).
 Using coherent gain here instead yields −4.26 dBFS and is wrong.
 
@@ -141,7 +141,7 @@ the third is the fix for root cause #5:
 1. Keep the `OVERLAY_ENABLED` guard.
 2. Keep the emission throttle. **Note:** `EMIT_THROTTLE_MS = 33` (30 Hz) is largely inert
    — a 2048-sample window at 48 kHz yields a level only every ~42.7 ms (**~23 Hz**), below
-   the throttle. Sizing decisions must use the *measured* rate, not 30 Hz.
+   the throttle. Sizing decisions must use the _measured_ rate, not 30 Hz.
 3. **New: emit only while recording AND the overlay is actually shown.** Gate on a
    recording/visibility flag, not just the setting. Without this, a hidden overlay is fed
    ~23 Hz of events all day in always-on mode.
@@ -152,21 +152,21 @@ rate — that would reintroduce exactly the pressure #1279 is about.
 ### Frontend — `src/overlay/waveform.ts` (new, pure, no DOM)
 
 - **`AutoGain`** — maps incoming dBFS to 0–1 against a `[noise_floor, speech_ref]` span.
-  - **`speech_ref` is a high percentile (P90) of dBFS over a ~2s sliding window**, *not* a
+  - **`speech_ref` is a high percentile (P90) of dBFS over a ~2s sliding window**, _not_ a
     fast-attack/slow-release running peak. A running peak is pinned by a single transient
     (a cough, a door), and the only mitigation — slow release — is the very thing that then
     keeps normal speech small for seconds afterward. A percentile rejects transients
-    *without* that hangover and still tracks genuine level changes.
+    _without_ that hangover and still tracks genuine level changes.
   - **Fed VAD-gated audio where available.** The level is computed pre-VAD
-    (recorder.rs:718), so a raw `speech_ref` is really a *loudest-sound* reference — in a
+    (recorder.rs:718), so a raw `speech_ref` is really a _loudest-sound_ reference — in a
     noisy room (fan, AC) it adapts to the noise and speech never lifts off, reproducing the
     exact bug we are fixing. Where the active VAD policy marks frames, only speech frames
     update `speech_ref`. Under `VadPolicy::Disabled`, fall back to raw and accept the
-    documented caveat that the wave then shows *input* level, noise included.
+    documented caveat that the wave then shows _input_ level, noise included.
   - A **minimum span** guards the denominator so silence is never normalized up to full
     scale. Silence must read flat — that is the "am I being heard" signal.
   - **Cold start:** initialize `speech_ref = -60 dBFS`, `noise_floor = -90 dBFS`, so the
-    first words read near full scale and the gain adapts *down*. The reverse initialization
+    first words read near full scale and the gain adapts _down_. The reverse initialization
     would make the overlay dead exactly when the user starts speaking — its worst moment.
 - **`Envelope`** — asymmetric exponential smoothing: fast attack, ~180ms release.
   Coefficients derived from elapsed `dt`, not an assumed frame count.
@@ -216,15 +216,15 @@ Every test below must be able to **fail**. Named because the previous draft's te
 
 **Rust (`cargo test`)**
 
-- **Two-point absolute calibration** (pins slope *and* offset — a single point or a ratio
+- **Two-point absolute calibration** (pins slope _and_ offset — a single point or a ratio
   test pins only one): full-scale in-band sine → **−3.01 ± 0.5 dBFS**; a −20 dBFS sine →
   **−23.01 ± 0.5 dBFS**.
-  *(A "halving the amplitude moves it −6 dB" test is near-tautological — any `20·log10`
+  _(A "halving the amplitude moves it −6 dB" test is near-tautological — any `20·log10`
   mapping satisfies it by construction. It validates the slope, never the offset, which is
-  the part the current code gets wrong.)*
+  the part the current code gets wrong.)_
 - **Rolloff sharpness, near the edge:** a 4.2 kHz tone (just above the 4 kHz cutoff) reads
-  ≥ 15 dB below an in-band tone of equal amplitude. *(60 Hz / 8 kHz pass trivially for any
-  band limit and prove nothing.)*
+  ≥ 15 dB below an in-band tone of equal amplitude. _(60 Hz / 8 kHz pass trivially for any
+  band limit and prove nothing.)_
 - Digital silence returns the −90 floor, never `-inf`/`NaN`.
 - `reset()` clears filter state: an impulse before reset does not affect the level after it.
 
@@ -250,22 +250,22 @@ silence reads flat; the overlay recolors correctly across all four themes.
 
 ## Risks
 
-| Risk | Mitigation |
-|---|---|
-| Auto-gain adapts to room noise, speech never lifts off | VAD-gate `speech_ref`; covered by the noisy-room test |
-| Transient (cough/door) pins the gain | P90 percentile estimator, not a running peak |
-| Dead overlay for the first second — worst possible moment | Cold-start init biases toward full scale; covered by a test |
-| Worsening #1279 with a heavier per-event handler | Gate emission on recording+visible; frontend early-return when hidden |
+| Risk                                                                    | Mitigation                                                                |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Auto-gain adapts to room noise, speech never lifts off                  | VAD-gate `speech_ref`; covered by the noisy-room test                     |
+| Transient (cough/door) pins the gain                                    | P90 percentile estimator, not a running peak                              |
+| Dead overlay for the first second — worst possible moment               | Cold-start init biases toward full scale; covered by a test               |
+| Worsening #1279 with a heavier per-event handler                        | Gate emission on recording+visible; frontend early-return when hidden     |
 | Compositing/battery cost of a transparent always-on-top panel animating | rAF at ~30 Hz, stopped when hidden; dropped entirely under reduced-motion |
-| Hardcoded colors breaking the theme engine | Theme tokens only; verify across four themes |
+| Hardcoded colors breaking the theme engine                              | Theme tokens only; verify across four themes                              |
 
 ## Non-goals
 
 - No new user-facing settings for the waveform.
-- No changes to VAD behavior, transcription, or the capture path (we only *read* VAD state).
+- No changes to VAD behavior, transcription, or the capture path (we only _read_ VAD state).
 - No change to overlay positioning or the Live panel's text/scroll behavior.
-- Not preserving the 16-bucket spectrum API — nothing consumes it. *(One-way door: a future
-  spectral feature would need a Rust change to re-expose bins. Accepted.)*
+- Not preserving the 16-bucket spectrum API — nothing consumes it. _(One-way door: a future
+  spectral feature would need a Rust change to re-expose bins. Accepted.)_
 
 ## Open question
 
@@ -281,7 +281,7 @@ the code or by numerical simulation. Changes:
 
 1. **Root cause re-ranked and re-derived.** v1 claimed a "−66 dB crush" from the dB math and
    ranked it #1. That figure was wrong (it is `20·log10(N)`, the offset versus dividing by 1,
-   but a correct normalization also divides by ~N). Real offset: ~9–17 dB. The *dominant*
+   but a correct normalization also divides by ~N). Real offset: ~9–17 dB. The _dominant_
    cause is the fixed `DB_MIN`/`DB_MAX` window clamping broadband speech to zero — confirmed
    by simulation.
 2. **Normalization corrected.** v1 said "coherent gain (0.5)" while also targeting −3.01 dBFS

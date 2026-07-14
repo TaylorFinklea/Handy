@@ -157,8 +157,8 @@ fn create_audio_recorder(
         )
         .with_level_callback({
             let app_handle = app_handle.clone();
-            move |levels| {
-                utils::emit_levels(&app_handle, &levels);
+            move |level| {
+                utils::emit_level(&app_handle, level);
             }
         })
         .with_audio_callback({
