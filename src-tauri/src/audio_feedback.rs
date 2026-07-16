@@ -50,7 +50,7 @@ fn resolve_sound_path(
                 }
             }
         }
-        let fallback = sound_type.builtin_path(SoundTheme::Marimba);
+        let fallback = sound_type.builtin_path(SoundTheme::Handpan);
         return app
             .path()
             .resolve(&fallback, tauri::path::BaseDirectory::Resource)
@@ -166,6 +166,10 @@ mod tests {
 
     #[test]
     fn builtin_path_matches_theme_and_slot() {
+        assert_eq!(
+            SoundType::Start.builtin_path(SoundTheme::Handpan),
+            "resources/handpan_start.wav"
+        );
         assert_eq!(
             SoundType::Start.builtin_path(SoundTheme::Pop),
             "resources/pop_start.wav"

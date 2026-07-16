@@ -144,11 +144,11 @@ pub fn clear_custom_sound(app: AppHandle, sound_type: String) -> Result<(), Stri
     let mut settings = get_settings(&app);
     match slot {
         "start" => {
-            settings.start_sound = SoundTheme::Marimba;
+            settings.start_sound = SoundTheme::Handpan;
             settings.custom_start_sound = None;
         }
         _ => {
-            settings.stop_sound = SoundTheme::Marimba;
+            settings.stop_sound = SoundTheme::Handpan;
             settings.custom_stop_sound = None;
         }
     }

@@ -235,6 +235,7 @@ impl ModelUnloadTimeout {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum SoundTheme {
+    Handpan,
     Marimba,
     Pop,
     Custom,
@@ -243,6 +244,7 @@ pub enum SoundTheme {
 impl SoundTheme {
     fn as_str(&self) -> &'static str {
         match self {
+            SoundTheme::Handpan => "handpan",
             SoundTheme::Marimba => "marimba",
             SoundTheme::Pop => "pop",
             SoundTheme::Custom => "custom",
@@ -576,7 +578,7 @@ fn default_audio_feedback_volume() -> f32 {
 }
 
 fn default_sound_theme() -> SoundTheme {
-    SoundTheme::Marimba
+    SoundTheme::Handpan
 }
 
 fn default_theme() -> String {
@@ -1177,6 +1179,8 @@ mod tests {
             .expect("all AppSettings fields need serde defaults");
         assert!(settings.push_to_talk);
         assert!(!settings.audio_feedback);
+        assert_eq!(settings.start_sound, SoundTheme::Handpan);
+        assert_eq!(settings.stop_sound, SoundTheme::Handpan);
         // Bindings default to empty; the load path merges the real defaults in.
         assert!(settings.bindings.is_empty());
     }

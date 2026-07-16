@@ -245,6 +245,7 @@
         "description": "Sound played when recording stops"
       },
       "theme": {
+        "handpan": "Handpan",
         "marimba": "Marimba",
         "pop": "Pop",
         "custom": "Custom"

@@ -498,12 +498,13 @@ pub fn change_audio_feedback_volume_setting(app: AppHandle, volume: f32) -> Resu
 
 fn parse_sound_theme(theme: &str) -> SoundTheme {
     match theme {
+        "handpan" => SoundTheme::Handpan,
         "marimba" => SoundTheme::Marimba,
         "pop" => SoundTheme::Pop,
         "custom" => SoundTheme::Custom,
         other => {
-            warn!("Invalid sound theme '{}', defaulting to marimba", other);
-            SoundTheme::Marimba
+            warn!("Invalid sound theme '{}', defaulting to handpan", other);
+            SoundTheme::Handpan
         }
     }
 }
