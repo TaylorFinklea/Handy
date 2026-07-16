@@ -53,6 +53,7 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
   disabledRef.current = disabled;
 
   const themeOptions: DropdownOption[] = [
+    { value: "tone", label: t("settings.sound.theme.tone") },
     { value: "handpan", label: t("settings.sound.theme.handpan") },
     { value: "marimba", label: t("settings.sound.theme.marimba") },
     { value: "pop", label: t("settings.sound.theme.pop") },
