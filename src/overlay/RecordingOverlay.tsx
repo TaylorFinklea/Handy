@@ -17,25 +17,15 @@ import {
   Envelope,
   History,
   historyLengthFor,
-  PX_PER_SAMPLE,
 } from "./waveform";
 
 type OverlayState = "recording" | "streaming" | "transcribing" | "processing";
 
 // Drawing height of the wave, in the SVG's own coordinate space.
 const WAVE_HEIGHT = 26;
-// The backend meters at ~30Hz (see audio_toolkit/audio/visualizer.rs). The wave scrolls
-// one sample per level, so this is also the cadence the scroll interpolates against.
+// The backend meters at ~30Hz (see audio_toolkit/audio/visualizer.rs); the wave is redrawn
+// once per level. Used only as the dt fallback for the very first level of a session.
 const LEVEL_INTERVAL_MS = 1000 / 30;
-// Redraw cap. Input arrives at ~30Hz, so a 60Hz loop would buy nothing but compositing
-// work: the overlay is a transparent always-on-top panel, and every frame forces the
-// compositor to re-blend the desktop behind it.
-const DRAW_INTERVAL_MS = 1000 / 30;
-
-const prefersReducedMotion = () =>
-  typeof window !== "undefined" &&
-  typeof window.matchMedia === "function" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
@@ -67,7 +57,6 @@ const RecordingOverlay: React.FC = () => {
   const lastLevelAtRef = useRef(0);
   const svgRef = useRef<SVGSVGElement>(null);
   const pathRef = useRef<SVGPathElement>(null);
-  const scrollRef = useRef<SVGGElement>(null);
   const [waveWidth, setWaveWidth] = useState(120);
   // The event listener is registered once and never re-created, so it cannot close over
   // `isVisible`; it reads the live value through a ref instead.
@@ -87,25 +76,23 @@ const RecordingOverlay: React.FC = () => {
   const rtlRef = useRef(direction === "rtl");
   rtlRef.current = direction === "rtl";
 
-  // Writes the wave straight to the DOM. `offset` shifts it by a fraction of one
-  // sample so the scroll is continuous rather than stepping 2px at each new level.
+  // Writes the wave straight to the DOM, once per incoming level. The newest sample is
+  // pinned to the leading edge and the wave scrolls purely by samples shifting through the
+  // history buffer — no sub-pixel translate. An earlier version interpolated the scroll
+  // between samples with requestAnimationFrame, but audio frames don't arrive perfectly
+  // evenly, so that translate drifted against the discrete sample-shift and the leading
+  // edge visibly jittered left/right. Redrawing on the data is jitter-free.
   // Reads only refs, so the listener's captured copy stays correct.
-  function drawWave(offset: number) {
+  function drawWave() {
     const path = pathRef.current;
     if (!path) return;
-    // Draw one sample wider than the viewport; that extra column is what slides in.
     const d = buildWavePath(
       historyRef.current.values(),
-      waveWidthRef.current + PX_PER_SAMPLE,
+      waveWidthRef.current,
       WAVE_HEIGHT,
       rtlRef.current,
     );
     path.setAttribute("d", d);
-    if (scrollRef.current) {
-      // In RTL the wave grows from the left, so it slides the other way.
-      const dx = rtlRef.current ? offset : -offset;
-      scrollRef.current.setAttribute("transform", `translate(${dx} 0)`);
-    }
   }
 
   useEffect(() => {
@@ -168,9 +155,8 @@ const RecordingOverlay: React.FC = () => {
           dt,
         );
         historyRef.current.push(amplitude);
-
-        // Under reduced motion there is no animation loop, so draw on the event itself.
-        if (prefersReducedMotion()) drawWave(0);
+        // Redraw on the data itself — one draw per level, newest at the leading edge.
+        drawWave();
       });
 
       const unlistenStream = await events.streamTextEvent.listen((event) => {
@@ -211,8 +197,10 @@ const RecordingOverlay: React.FC = () => {
     const measure = () => {
       const w = svg.clientWidth || svg.getBoundingClientRect().width;
       if (w > 0 && Math.abs(w - waveWidthRef.current) >= 1) {
+        waveWidthRef.current = w;
         setWaveWidth(w);
         historyRef.current.resize(historyLengthFor(w));
+        drawWave(); // reflow the wave to the new width immediately
       }
     };
     measure();
@@ -221,32 +209,14 @@ const RecordingOverlay: React.FC = () => {
     return () => ro.disconnect();
   }, [state, isVisible]);
 
-  // Scroll/redraw loop. Runs only while the overlay is actually showing a live waveform —
-  // never behind a hidden overlay, and never during the transcribing/processing rows,
-  // which show a spinner instead.
-  const listening =
-    isVisible && (state === "recording" || state === "streaming");
+  // The wave is drawn on each incoming level (see the mic-level listener), not by a
+  // free-running animation loop — so there is nothing to run behind a hidden overlay, and
+  // no scroll interpolation to jitter. When the overlay stops showing a live waveform,
+  // clear the path so a stale wave doesn't linger under the next state.
   useEffect(() => {
-    if (!listening || prefersReducedMotion()) return;
-    let raf = 0;
-    let lastDraw = 0;
-    const loop = (t: number) => {
-      raf = requestAnimationFrame(loop);
-      if (t - lastDraw < DRAW_INTERVAL_MS) return;
-      lastDraw = t;
-      // How far we are between the last level and the next one due, so the wave slides
-      // continuously instead of jumping one sample-width per event.
-      const since = performance.now() - lastLevelAtRef.current;
-      const fraction = lastLevelAtRef.current
-        ? Math.min(1, since / LEVEL_INTERVAL_MS)
-        : 0;
-      drawWave(fraction * PX_PER_SAMPLE);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-    // drawWave reads only refs, so it needs no dependency entry — the loop always sees
-    // the current width, direction and history.
-  }, [listening]);
+    const live = isVisible && (state === "recording" || state === "streaming");
+    if (!live) pathRef.current?.setAttribute("d", "");
+  }, [isVisible, state]);
 
   // Stick to the bottom as text streams in — but only while pinned, so a user who
   // has scrolled up to read history isn't yanked back down by the next chunk.
@@ -282,13 +252,11 @@ const RecordingOverlay: React.FC = () => {
     <svg
       ref={svgRef}
       className="swave"
-      viewBox={`0 0 ${waveWidth + PX_PER_SAMPLE} ${WAVE_HEIGHT}`}
+      viewBox={`0 0 ${waveWidth} ${WAVE_HEIGHT}`}
       preserveAspectRatio="none"
       aria-hidden="true"
     >
-      <g ref={scrollRef}>
-        <path ref={pathRef} d="" />
-      </g>
+      <path ref={pathRef} d="" />
     </svg>
   );
 
