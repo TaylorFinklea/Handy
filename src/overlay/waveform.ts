@@ -120,15 +120,23 @@ export class AutoGain {
 
 // --- Envelope ---------------------------------------------------------------------
 
-/** Fast enough to catch a syllable's onset. */
+/** Fast enough to catch a syllable's onset. Applies only to *large* upward moves. */
 const ATTACK_MS = 15;
 /** Slow enough that the wave settles rather than snapping to zero between words. */
 const RELEASE_MS = 180;
+/** Moves smaller than this (in 0..1 amplitude) are treated as flicker — breath, final
+ *  consonants, residual noise as the voice trails off — and heavily smoothed in both
+ *  directions, so the tail glides instead of chattering. Real speech onsets clear it and
+ *  keep the fast attack, so punch is preserved. */
+const SNAP_THRESHOLD = 0.12;
+/** Time constant for those small flicker moves — long enough to glide over the wobble. */
+const GLIDE_MS = 260;
 
 /**
- * Asymmetric smoothing: quick to rise, gentle to fall. This asymmetry is what makes the
- * wave read as *alive* — the symmetric filter it replaces damped attacks exactly as hard
- * as decays, which is why speech barely registered.
+ * Asymmetric smoothing: quick to rise on a real speech onset, gentle to fall, and heavily
+ * damped on small flicker either way. The rise/fall asymmetry is what makes the wave read
+ * as *alive*; the flicker damping is what stops the tail of a word from chattering while
+ * leaving that liveliness intact.
  *
  * Coefficients derive from elapsed time, not an assumed frame count, so a dropped frame
  * changes nothing about the perceived response.
@@ -137,11 +145,19 @@ export class Envelope {
   private value = 0;
 
   process(target: number, dtMs: number): number {
-    const tau = target > this.value ? ATTACK_MS : RELEASE_MS;
+    const delta = target - this.value;
+    // Small moves (flicker) glide regardless of direction; only a large upward move earns
+    // the fast attack, and larger downward moves use the normal release.
+    const tau =
+      Math.abs(delta) < SNAP_THRESHOLD
+        ? GLIDE_MS
+        : delta > 0
+          ? ATTACK_MS
+          : RELEASE_MS;
     // Guard against a pathological dt (e.g. a backgrounded tab resuming) snapping the
     // envelope; exp() handles it correctly but clamp keeps it sane.
     const alpha = 1 - Math.exp(-Math.max(0, dtMs) / tau);
-    this.value += (target - this.value) * alpha;
+    this.value += delta * alpha;
     return this.value;
   }
 

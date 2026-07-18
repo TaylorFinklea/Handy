@@ -136,6 +136,23 @@ describe("Envelope", () => {
     expect(afterRelease).toBeGreaterThan(0.75);
   });
 
+  test("small flicker is smoothed away while a real onset stays fast", () => {
+    // Fade-out flicker: the amplitude wobbles by small amounts. The output must be far
+    // calmer than the input — this is the tail-jitter fix.
+    const env = new Envelope();
+    env.process(0.2, 33); // settle near 0.2
+    const inputs = [0.28, 0.13, 0.3, 0.12, 0.27, 0.14];
+    const outputs = inputs.map((v) => env.process(v, 33));
+    const range = Math.max(...outputs) - Math.min(...outputs);
+    const inputRange = Math.max(...inputs) - Math.min(...inputs);
+    expect(range).toBeLessThan(inputRange * 0.5); // wobble at least halved
+
+    // A genuine speech onset (large jump) still rises fast in a single frame.
+    const onset = new Envelope();
+    const rose = onset.process(0.8, 33);
+    expect(rose).toBeGreaterThan(0.6);
+  });
+
   test("response depends on elapsed time, not frame count", () => {
     const a = new Envelope();
     const b = new Envelope();
