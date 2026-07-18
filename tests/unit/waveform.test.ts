@@ -27,7 +27,7 @@ describe("AutoGain", () => {
     expect(speech).toBeGreaterThan(0.6);
   });
 
-  test("a quiet mic and a loud mic both reach the top of the range", () => {
+  test("a quiet mic and a loud mic both produce a clearly visible wave", () => {
     const quiet = new AutoGain();
     sustain(quiet, SILENCE_DBFS, 60);
     const quietSpeech = sustain(quiet, -55, 90);
@@ -36,9 +36,55 @@ describe("AutoGain", () => {
     sustain(loud, SILENCE_DBFS, 60);
     const loudSpeech = sustain(loud, -15, 90);
 
-    // Mic independence is the whole promise of auto-gain.
-    expect(quietSpeech).toBeGreaterThan(0.6);
-    expect(loudSpeech).toBeGreaterThan(0.6);
+    // Mic independence is the whole promise of auto-gain: neither the quiet nor the loud
+    // mic is stuck near the floor. (Headroom means normal speech sits mid-wave, not at the
+    // top — see the headroom test — so this asserts "clearly visible", not "peaked".)
+    expect(quietSpeech).toBeGreaterThan(0.45);
+    expect(loudSpeech).toBeGreaterThan(0.45);
+  });
+
+  test("normal speech leaves headroom; a raised voice reaches higher", () => {
+    // Realistic input: speech with silence gaps, so the noise floor settles to the
+    // room rather than staying pinned at the initial floor.
+    const gain = new AutoGain();
+    const speak = (db: number) => {
+      for (let i = 0; i < 8; i++) gain.push(db); // a word
+      for (let i = 0; i < 4; i++) gain.push(SILENCE_DBFS); // a gap
+    };
+    let normal = 0;
+    for (let i = 0; i < 12; i++) {
+      speak(-35);
+      normal = gain.push(-35);
+    }
+    // Normal speech should sit mid-wave, not pinned at the top — the whole point of the
+    // headroom change.
+    expect(normal).toBeGreaterThan(0.25);
+    expect(normal).toBeLessThan(0.8);
+
+    // A raised voice must read clearly higher than normal speech.
+    let loud = 0;
+    for (let i = 0; i < 4; i++) loud = gain.push(-18);
+    expect(loud).toBeGreaterThan(normal + 0.1);
+  });
+
+  test("near-floor noise is gated to a flat baseline (no tail jitter)", () => {
+    // Realistic session: room tone at -63 with speech bursts at -33, alternating. The
+    // floor climbs to meet the room tone, so residual noise at the tail of a word reads
+    // flat instead of jittering at mid-wave (the reported bug).
+    const gain = new AutoGain();
+    for (let round = 0; round < 8; round++) {
+      for (let i = 0; i < 10; i++) gain.push(-63); // a gap: room tone
+      for (let i = 0; i < 8; i++) gain.push(-33); // a word
+    }
+
+    // The floor has tracked room tone, so a level right at it renders flat.
+    let roomTone = 0;
+    for (let i = 0; i < 10; i++) roomTone = gain.push(-63);
+    expect(roomTone).toBeLessThan(0.08);
+
+    // Speech well above the floor is unaffected by the gate.
+    const speech = gain.push(-33);
+    expect(speech).toBeGreaterThan(0.3);
   });
 
   test("silence is never amplified into a full-scale wave", () => {
@@ -156,6 +202,27 @@ describe("buildWavePath", () => {
     // point (x=0) is the quietest — nearest the centerline (y=20).
     const firstY = (d: string) => parseFloat(d.split(" ")[2]);
     expect(firstY(ltr)).toBeGreaterThan(firstY(rtl));
+  });
+
+  test("every command has a valid argument count", () => {
+    // A malformed path (e.g. an L with three numbers) makes WebKit drop the whole
+    // path and render nothing — the "doesn't move at all" bug. Validate structurally.
+    const d = buildWavePath([0.1, 0.4, 0.8, 0.5, 0.2, 0.6, 0.9], 120, 26);
+    const argsPerCommand: Record<string, number> = { M: 2, L: 2, C: 6, Z: 0 };
+    const tokens = d.match(/[MLCZ]|-?\d*\.?\d+/g) ?? [];
+    let i = 0;
+    while (i < tokens.length) {
+      const cmd = tokens[i++];
+      expect(argsPerCommand).toHaveProperty(cmd);
+      const need = argsPerCommand[cmd];
+      for (let a = 0; a < need; a++) {
+        // Each argument slot must be a number, not another command.
+        expect(tokens[i + a]).toMatch(/^-?\d*\.?\d+$/);
+      }
+      i += need;
+    }
+    // And it must consume exactly — no leftover tokens.
+    expect(i).toBe(tokens.length);
   });
 
   test("degenerate input yields an empty path rather than NaN", () => {

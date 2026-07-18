@@ -298,15 +298,20 @@
 }
 
 /* Waveform — simple reactive bars, themed; heights set inline from mic levels. */
-/* Scrolling voice wave. Fills the row's centre slot so the pill and the wider Live panel
-   each show as much history as they have room for (see historyLengthFor). `overflow:
-   hidden` clips the extra sample-width that slides in from the leading edge. */
+/* Scrolling voice wave. It sits in the centre (`auto`) column of the .sbase grid, so it
+   must carry a definite width — an inline <svg> otherwise takes its intrinsic replaced
+   size and blows the pill past the overlay window. `overflow: hidden` clips the extra
+   sample-width that slides in from the leading edge. Width is a CSS var so the wider Live
+   panel can give the wave more room without changing the markup. */
 .swave {
-  flex: 1 1 auto;
-  min-width: 0;
+  width: var(--ov-wave-w, 104px);
   height: 26px;
   overflow: hidden;
   display: block;
+}
+/* The Live panel is far wider than the pill, so let the wave breathe there. */
+.scard.open .swave {
+  --ov-wave-w: 180px;
 }
 .swave path {
   fill: color-mix(in srgb, var(--s-accent) 22%, transparent);

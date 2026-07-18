@@ -15,20 +15,36 @@ export const SILENCE_DBFS = -90;
 
 /** A level must sit this far above the noise floor to count as speech. */
 const SPEECH_MARGIN_DB = 6;
-/** Floor on the dynamic range. Without it, a silent room's tiny fluctuations would be
- *  stretched to full scale and the wave would thrash on nothing. */
+/** The noise floor only rises toward levels at least this far *below* recent speech —
+ *  i.e. genuine room tone in the gaps between words. This is what lets the floor climb to
+ *  meet real room noise (so the tail of speech gates to flat) without sustained speech
+ *  dragging the floor up with it. */
+const GAP_MARGIN_DB = 10;
+/** Headroom above the user's typical (P90) speech that maps to full wave height. Without
+ *  it, "full scale" is calibrated to normal speech, so the wave sits pinned near the top
+ *  whenever you talk — the aggressive feel. With headroom, normal speech lands mid-wave
+ *  and only a raised voice fills it, and the reference still adapts to your level. */
+const HEADROOM_DB = 24;
+/** Floor on the dynamic range. Guards the denominator when speech_ref and the noise floor
+ *  are momentarily close (startup, near-silence) so tiny fluctuations aren't stretched to
+ *  full scale. */
 const MIN_SPAN_DB = 12;
-/** The noise floor drops quickly to a new minimum but creeps up only very slowly, so
- *  sustained speech cannot drag the floor up behind it. */
+/** Soft noise-gate band, in dB above the noise floor. Levels at or below `GATE_LOW_DB`
+ *  above the floor render flat; the wave fades fully in by `GATE_HIGH_DB`. This calms the
+ *  jittery baseline at the tail of speech without touching speech, which sits far higher. */
+const GATE_LOW_DB = 3;
+const GATE_HIGH_DB = 9;
+/** The noise floor drops quickly toward any quieter level, and rises toward louder ones
+ *  only when they are gap-level room tone (see GAP_MARGIN_DB) — moderately, so it tracks
+ *  real room noise within a second or two without chasing speech. */
 const NOISE_FALL = 0.25;
-const NOISE_RISE = 0.0005;
+const NOISE_RISE = 0.05;
 /** ~2s of speech history at ~30Hz, used for the percentile. */
 const SPEECH_WINDOW = 64;
-/** Cold-start values. speech_ref starts low and noise_floor starts at the silence floor,
- *  so the first words read near full scale and the gain adapts *down* from there. The
- *  reverse would leave the overlay dead exactly when the user starts talking — the one
- *  moment it must not be. */
-const INITIAL_SPEECH_REF = -60;
+/** Cold-start values. speech_ref starts mid so the first words read around mid-wave (the
+ *  headroom feel from the very first syllable), and the floor starts low so early speech
+ *  is never gated. The floor then climbs to meet real room noise within a second. */
+const INITIAL_SPEECH_REF = -40;
 const INITIAL_NOISE_FLOOR = SILENCE_DBFS;
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -61,8 +77,15 @@ export class AutoGain {
 
   /** Feed one level in dBFS; returns the normalized 0..1 amplitude. */
   push(db: number): number {
-    const alpha = db < this.noiseFloor ? NOISE_FALL : NOISE_RISE;
-    this.noiseFloor += (db - this.noiseFloor) * alpha;
+    // Track the noise floor: fall fast toward any quieter level; rise toward louder ones
+    // only when they sit well below recent speech (room tone in the gaps), so sustained
+    // speech never drags the floor up with it. This is what lets the floor climb from its
+    // low cold-start value to real room noise, so the tail of speech reads as flat.
+    if (db < this.noiseFloor) {
+      this.noiseFloor += (db - this.noiseFloor) * NOISE_FALL;
+    } else if (db < this.speechRef - GAP_MARGIN_DB) {
+      this.noiseFloor += (db - this.noiseFloor) * NOISE_RISE;
+    }
 
     // Only levels that are plausibly speech update the reference. Without this the
     // reference tracks whatever is loudest in the room — a fan, the AC — and in a noisy
@@ -73,8 +96,19 @@ export class AutoGain {
       this.speechRef = percentile(this.speech, 0.9);
     }
 
-    const span = Math.max(MIN_SPAN_DB, this.speechRef - this.noiseFloor);
-    return clamp01((db - this.noiseFloor) / span);
+    // "Full height" sits a headroom margin above typical speech, not at it, so normal
+    // speech reads mid-wave and only a raised voice reaches the top.
+    const ceil = this.speechRef + HEADROOM_DB;
+    const span = Math.max(MIN_SPAN_DB, ceil - this.noiseFloor);
+    const normalized = clamp01((db - this.noiseFloor) / span);
+
+    // Soft noise gate: fade the wave to flat as the level approaches the noise floor.
+    // At the tail of speech the level drops into residual room noise, which auto-gain
+    // would otherwise amplify into a jittering baseline. Speech sits well above the gate,
+    // so this leaves the snappy response untouched — it only calms genuine near-silence.
+    const above = db - this.noiseFloor;
+    const gate = clamp01((above - GATE_LOW_DB) / (GATE_HIGH_DB - GATE_LOW_DB));
+    return gate * normalized;
   }
 
   reset(): void {
@@ -194,23 +228,23 @@ export function buildWavePath(
     y: mid - Math.max(MIN_AMPLITUDE, v) * half,
   }));
 
-  const top = smoothThrough(upper);
   // Reflect for the lower half, walking back right-to-left so the path closes cleanly.
   const lower = [...upper]
     .reverse()
     .map(({ x, y }) => ({ x, y: mid + (mid - y) }));
-  const bottom = smoothThrough(lower);
 
-  // `top` already starts with M; splice the return leg on with an L into its first point.
-  return `${top} L ${lower[0].x.toFixed(2)} ${lower[0].y.toFixed(2)} ${bottom.slice(
-    bottom.indexOf(" ", 2) + 1,
-  )} Z`;
+  // Move to the start of the top edge, curve across it, line down to the start of the
+  // bottom edge, curve back, close. `smoothCurves` emits only the C commands (no move),
+  // so the two halves splice together without a stray coordinate.
+  const start = `M ${upper[0].x.toFixed(2)} ${upper[0].y.toFixed(2)}`;
+  const down = `L ${lower[0].x.toFixed(2)} ${lower[0].y.toFixed(2)}`;
+  return `${start} ${smoothCurves(upper)} ${down} ${smoothCurves(lower)} Z`;
 }
 
-/** Catmull-Rom spline through the points, emitted as cubic Béziers. */
-function smoothThrough(pts: { x: number; y: number }[]): string {
+/** Cubic-Bézier commands (no leading move) approximating a Catmull-Rom spline. */
+function smoothCurves(pts: { x: number; y: number }[]): string {
   if (pts.length < 2) return "";
-  let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+  let d = "";
   for (let i = 0; i < pts.length - 1; i++) {
     const p0 = pts[i - 1] ?? pts[i];
     const p1 = pts[i];
