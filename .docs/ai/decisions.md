@@ -9,3 +9,11 @@
 **Alternatives considered**: A media-key toggle cannot identify playback state; public player adapters do not cover arbitrary Control Center-compatible players.
 
 **Rationale**: MediaRemote is the only explored option that can meet the requested global pause-and-conditional-resume behavior without false toggles.
+
+## 2026-07-23 — Keep fork releases on the fork update channel
+
+**Context**: A Homebrew cask distributes TaylorFinklea/Handy independently of upstream Handy.
+
+**Decision**: Fork builds check `TaylorFinklea/Handy` for updates, never `cjpais/Handy`.
+
+**Rationale**: An upstream update would overwrite fork-only behavior. Until the fork publishes a matching signed `latest.json`, update checks fail closed while Homebrew remains the update channel.
